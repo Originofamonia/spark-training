@@ -1,14 +1,22 @@
 # http://ampcamp.berkeley.edu/5/exercises/movie-recommendation-with-mllib.html
 # https://weiminwang.blog/2016/06/09/pyspark-tutorial-building-a-random-forest-binary-classifier-on-unbalanced-dataset/
-
+"""
+use numpy to process matrices
+"""
 import sys
 import itertools
 from math import sqrt
+import numpy as np
+from scipy.sparse import coo_matrix, csr_matrix
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.decomposition import NMF
 from operator import add
 from os.path import join, isfile, dirname
 
 from pyspark import SparkConf, SparkContext
+from pyspark.sql import SparkSession
 from pyspark.mllib.recommendation import ALS
+from pyspark.mllib.linalg.distributed import CoordinateMatrix, MatrixEntry, BlockMatrix
 from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
 
@@ -28,21 +36,84 @@ def parse_movie(line):
     return int(fields[0]), fields[1]
 
 
-def load_ratings(ratingsFile):
+def parse_xoy(train_mat, n_users, n_items):
     """
-    Load ratings from file.
+    Parses a training matrix to x, o, y
+    :param n_items:
+    :param n_users:
+    :param train_mat:
+    :return:
     """
-    if not isfile(ratingsFile):
-        print("File %s does not exist." % ratingsFile)
+    o = np.clip(train_mat, 0, 1)  # O
+    x = (train_mat >= 3) * np.ones((n_users, n_items))  # X, split [0, 1, 2] -> 0, [3, 4, 5] -> 1
+    y = o - x  # Y
+    a = np.unique(o)
+    b = np.unique(x)
+    c = np.unique(y)
+    return x, o, y
+
+
+def parse_o(line):
+    """
+    Parse a rating matrix to o
+    :param line:
+    :return:
+    """
+    if float(line[1][2]) > 0:  # observed
+        return int(line[1][0]), int(line[1][1]), 1
+    else:
+        return int(line[1][0]), int(line[1][1]), 0
+
+
+def load_ratings(ratings_file):
+    """
+    Load ratings from file into ndarray
+    """
+    if not isfile(ratings_file):
+        print("File %s does not exist." % ratings_file)
         sys.exit(1)
-    f = open(ratingsFile, 'r')
-    ratings = filter(lambda r: r[2] > 0, [parse_rating(line)[1] for line in f])
+    f = open(ratings_file, 'r')
+    ratings = np.loadtxt(ratings_file, dtype=int, delimiter='::')
     f.close()
-    if not ratings:
+    if not ratings.any():
         print("No ratings provided.")
         sys.exit(1)
     else:
         return ratings
+
+
+def split_ratings(ratings, b1, b2):
+    """
+    split ratings into training, validation, test
+    :param ratings: matrix, row is (i, j, value, timestamp)
+    :param b1: boundary1: between training and validation
+    :param b2: boundary2: between validation and test
+    :return: training, validation, test
+    """
+    training = np.array([row for row in ratings if row[3] % 10 < b1])  # [0, 5]
+    validation = np.array([row for row in ratings if b1 <= row[3] % 10 < b2])  # [6, 7]
+    test = np.array([row for row in ratings if b2 < row[3] % 10])  # [8, 9]
+    training = np.delete(training, 3, 1)
+    validation = np.delete(validation, 3, 1)
+    test = np.delete(test, 3, 1)
+
+    return training, validation, test
+
+
+def mf_sklearn(t, x_test, y_test):
+    model = NMF(n_components=16, init='random', random_state=0)
+    w = model.fit_transform(t)  # MF
+    h = model.components_
+    t_hat = np.dot(w, h)  # matrix completion
+    u = np.concatenate((x_test, y_test), axis=1)
+    scores = np.dot(u, t_hat)
+    return scores
+
+
+def parse_t(t):
+    sparse_t = csr_matrix(t, dtype=int).tocoo()  # used for spark
+    mat = np.vstack((sparse_t.row, sparse_t.col, sparse_t.data)).T
+    return mat
 
 
 def compute_rmse(model, data, n):
@@ -57,6 +128,13 @@ def compute_rmse(model, data, n):
 
 
 def compute_auc(model, data, n):
+    """
+    TODO: haven't finished
+    :param model:
+    :param data:
+    :param n:
+    :return:
+    """
     predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
     predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
         .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
@@ -65,62 +143,42 @@ def compute_auc(model, data, n):
 
 def main():
     # set up environment
-    conf = SparkConf() \
-        .setAppName("MovieLensALS") \
-        .set("spark.executor.memory", "2g")
+    conf = SparkConf().setAppName("MovieLensALS") \
+                      .set("spark.executor.memory", "2g")
     sc = SparkContext(conf=conf)
+    spark = SparkSession(sc)  # solve the ParallelRDD issue
 
     # load personal ratings
-    path = '../../data/movielens/medium/ratings.dat'
-    my_ratings = load_ratings(path)
-    my_ratings_rdd = sc.parallelize(my_ratings, 1)
-
-    # load ratings and movie titles
-
     movie_lens_home_dir = '../../data/movielens/medium/'
-
-    # ratings is an RDD of (last digit of timestamp, (userId, movieId, rating))
-    # RDD is Resilient Distributed Dataset
-    # UserID::MovieID::Rating::Timestamp
-    a = sc.textFile(join(movie_lens_home_dir, "ratings.dat"))
-    ratings = sc.textFile(join(movie_lens_home_dir, "ratings.dat")).map(parse_rating)
-
-    # movies is an RDD of (movieId, movieTitle)
-    # MovieID::Title::Genres
-    movies = dict(sc.textFile(join(movie_lens_home_dir, "movies.dat")).map(parse_movie).collect())
-
-    num_ratings = ratings.count()
-    num_users = ratings.values().map(lambda r: r[0]).distinct().count()
-    num_movies = ratings.values().map(lambda r: r[1]).distinct().count()
-
-    print("Got %d ratings from %d users on %d movies." % (num_ratings, num_users, num_movies))
-
+    path = '../../data/movielens/medium/ratings.dat'
+    ratings = load_ratings(path)
     # split ratings into train (60%), validation (20%), and test (20%) based on the
     # last digit of the timestamp, add my_ratings to train, and cache them
-
     # training, validation, test are all RDDs of (userId, movieId, rating)
+    training, validation, test = split_ratings(ratings, 6, 8)
 
-    num_partitions = 4
-    training = ratings.filter(lambda x: x[0] < 6) \
-        .values() \
-        .repartition(num_partitions) \
-        .cache()
+    num_training = training.shape
+    num_validation = validation.shape
+    num_test = test.shape
+    print("Training: {}, validation: {}, test: {}".format(num_training, num_validation, num_test))
 
-    validation = ratings.filter(lambda x: 6 <= x[0] < 8) \
-        .values() \
-        .repartition(num_partitions) \
-        .cache()
+    train_mat = coo_matrix((training[:, 2], (training[:, 0], training[:, 1])), shape=(6041, 3953)).toarray()
+    test_mat = coo_matrix((test[:, 2], (test[:, 0], test[:, 1])), shape=(6041, 3953)).toarray()
+    x_train, o_train, y_train = parse_xoy(train_mat, 6041, 3953)
+    x_test, o_test, y_test = parse_xoy(test_mat, 6041, 3953)
 
-    test = ratings.filter(lambda x: x[0] >= 8).values().cache()
-
-    num_training = training.count()
-    num_validation = validation.count()
-    num_test = test.count()
-
-    print("Training: %d, validation: %d, test: %d" % (num_training, num_validation, num_test))
+    t1 = np.dot(x_train.T, x_train)
+    t2 = np.dot(y_train.T, x_train)
+    # a, b = np.max(t1), np.min(t1)
+    # c, d = np.max(t2), np.min(t2)
+    t = np.concatenate((t1, t2), axis=0)  # [7906, 3953]
+    # mf_sklearn(t, x_test, y_test)
 
     # train models and evaluate them on the validation set
-
+    num_partitions = 4
+    t_coo = parse_t(t)
+    t_rdd = sc.parallelize(t_coo).repartition(num_partitions)
+    a = t_rdd.collect()
     ranks = [8, 12]
     lambdas = [0.1, 10.0]
     num_iters = [10, 20]
@@ -129,10 +187,9 @@ def main():
     best_rank = 0
     best_lambda = -1.0
     best_num_iter = -1
-    a = training.collect()
 
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
-        model = ALS.train(training, rank, numIter, lmbda)
+        model = ALS.train(t_rdd, rank, numIter, lmbda)
         validation_rmse = compute_rmse(model, validation, num_validation)
         print("RMSE (validation) = %f for the model trained with " % validation_rmse + \
               "rank = %d, lambda = %.1f, and numIter = %d." % (rank, lmbda, numIter))

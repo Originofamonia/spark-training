@@ -8,7 +8,9 @@ from operator import add
 from os.path import join, isfile, dirname
 
 from pyspark import SparkConf, SparkContext
+from pyspark.sql import SparkSession
 from pyspark.mllib.recommendation import ALS
+from pyspark.mllib.linalg.distributed import CoordinateMatrix, MatrixEntry
 from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
 
@@ -28,6 +30,32 @@ def parse_movie(line):
     return int(fields[0]), fields[1]
 
 
+def parse_x(line):
+    """
+    Parses a rating matrix to x
+    :param line:
+    :return:
+    """
+    fields = line.strip().split("::")
+    if float(fields[2]) >= 3:  # split at 3
+        return int(fields[3]) % 10, (int(fields[0]), int(fields[1]), 1)
+    else:
+        return int(fields[3]) % 10, (int(fields[0]), int(fields[1]), 0)
+
+
+def parse_o(line):
+    """
+    Parse a rating matrix to o
+    :param line:
+    :return:
+    """
+    fields = line.strip().split("::")
+    if float(fields[2]) > 0:
+        return int(fields[3]) % 10, (int(fields[0]), int(fields[1]), 1)
+    else:
+        return int(fields[3]) % 10, (int(fields[0]), int(fields[1]), 0)
+
+
 def load_ratings(ratingsFile):
     """
     Load ratings from file.
@@ -36,7 +64,7 @@ def load_ratings(ratingsFile):
         print("File %s does not exist." % ratingsFile)
         sys.exit(1)
     f = open(ratingsFile, 'r')
-    ratings = filter(lambda r: r[2] > 0, [parse_rating(line)[1] for line in f])
+    ratings = filter(lambda r: r[2] >= 0, [parse_rating(line) for line in f])
     f.close()
     if not ratings:
         print("No ratings provided.")
@@ -57,6 +85,13 @@ def compute_rmse(model, data, n):
 
 
 def compute_auc(model, data, n):
+    """
+    TODO: haven't finished
+    :param model:
+    :param data:
+    :param n:
+    :return:
+    """
     predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
     predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
         .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
@@ -65,33 +100,35 @@ def compute_auc(model, data, n):
 
 def main():
     # set up environment
-    conf = SparkConf() \
-        .setAppName("MovieLensALS") \
-        .set("spark.executor.memory", "2g")
+    conf = SparkConf().setAppName("MovieLensALS") \
+                      .set("spark.executor.memory", "2g")
     sc = SparkContext(conf=conf)
+    spark = SparkSession(sc)  # solve the ParallelRDD issue
 
     # load personal ratings
     path = '../../data/movielens/medium/ratings.dat'
     my_ratings = load_ratings(path)
-    my_ratings_rdd = sc.parallelize(my_ratings, 1)
-
+    ratings = sc.parallelize(my_ratings)
+    my_ratings_mat = CoordinateMatrix(ratings)
+    a = ratings.map(lambda r: r[0]).distinct().count()
+    b = ratings.map(lambda r: r[1]).distinct().count()
+    my_ratings_mat_t = my_ratings_mat.transpose
+    # s = my_ratings_mat_t.toIndexedRowMatrix().multiply(my_ratings_mat)
     # load ratings and movie titles
-
     movie_lens_home_dir = '../../data/movielens/medium/'
 
     # ratings is an RDD of (last digit of timestamp, (userId, movieId, rating))
     # RDD is Resilient Distributed Dataset
     # UserID::MovieID::Rating::Timestamp
-    a = sc.textFile(join(movie_lens_home_dir, "ratings.dat"))
-    ratings = sc.textFile(join(movie_lens_home_dir, "ratings.dat")).map(parse_rating)
+    # ratings = sc.textFile(join(movie_lens_home_dir, "ratings.dat")).map(parse_rating)
 
     # movies is an RDD of (movieId, movieTitle)
     # MovieID::Title::Genres
     movies = dict(sc.textFile(join(movie_lens_home_dir, "movies.dat")).map(parse_movie).collect())
 
     num_ratings = ratings.count()
-    num_users = ratings.values().map(lambda r: r[0]).distinct().count()
-    num_movies = ratings.values().map(lambda r: r[1]).distinct().count()
+    num_users = ratings.map(lambda r: r[0]).distinct().count()
+    num_movies = ratings.map(lambda r: r[1]).distinct().count()
 
     print("Got %d ratings from %d users on %d movies." % (num_ratings, num_users, num_movies))
 
@@ -129,7 +166,6 @@ def main():
     best_rank = 0
     best_lambda = -1.0
     best_num_iter = -1
-    a = training.collect()
 
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
         model = ALS.train(training, rank, numIter, lmbda)
