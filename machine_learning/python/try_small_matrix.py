@@ -9,8 +9,8 @@ from machine_learning.python.MovieLensALS import compute_rmse
 def small_matrix_sklearn():
     mat = np.array([(1, 0, 0, 0),
                     (0, 0, 1, 0),
-                    (0, 0, 0, 1),
-                    (0, 1, 0, 0)])
+                    (0, 1, 0, 1),
+                    (0, 0, 0, 0)])
 
 
 def try_small_matrix_spark():

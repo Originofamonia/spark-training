@@ -2,6 +2,8 @@
 # https://weiminwang.blog/2016/06/09/pyspark-tutorial-building-a-random-forest-binary-classifier-on-unbalanced-dataset/
 """
 use numpy to process matrices
+    1. use sklearn's MF (done)
+    2. stuck at line 195: model = ALS.train(t_rdd, rank, numIter, lmbda)
 """
 import sys
 import itertools
@@ -16,6 +18,7 @@ from os.path import join, isfile, dirname
 from pyspark import SparkConf, SparkContext
 from pyspark.sql import SparkSession
 from pyspark.mllib.recommendation import ALS
+from pyspark.mllib.evaluation import BinaryClassificationMetrics
 from pyspark.mllib.linalg.distributed import CoordinateMatrix, MatrixEntry, BlockMatrix
 from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
@@ -139,6 +142,14 @@ def compute_auc(model, data, n):
     predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
         .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
         .values()
+
+    metrics = BinaryClassificationMetrics(predictions_and_ratings)
+    # Area under precision-recall curve
+    print("Area under PR = %s" % metrics.areaUnderPR)
+
+    # Area under ROC curve
+    print("Area under ROC = %s" % metrics.areaUnderROC)
+    return metrics.areaUnderROC
 
 
 def main():

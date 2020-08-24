@@ -11,6 +11,8 @@ from pyspark import SparkConf, SparkContext
 from pyspark.mllib.recommendation import ALS
 from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
+from machine_learning.python.MovieLensALS_hcf2 import compute_auc
+
 
 def parse_rating(line):
     """
@@ -54,13 +56,6 @@ def compute_rmse(model, data, n):
         .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
         .values()
     return sqrt(predictions_and_ratings.map(lambda x: (x[0] - x[1]) ** 2).reduce(add) / float(n))
-
-
-def compute_auc(model, data, n):
-    predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
-    predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
-        .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
-        .values()
 
 
 def main():
@@ -126,6 +121,7 @@ def main():
     num_iters = [10, 20]
     best_model = None
     best_validation_rmse = float("inf")
+    best_validation_auc = float("-inf")
     best_rank = 0
     best_lambda = -1.0
     best_num_iter = -1
@@ -134,8 +130,11 @@ def main():
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
         model = ALS.train(training, rank, numIter, lmbda)
         validation_rmse = compute_rmse(model, validation, num_validation)
-        print("RMSE (validation) = %f for the model trained with " % validation_rmse + \
-              "rank = %d, lambda = %.1f, and numIter = %d." % (rank, lmbda, numIter))
+        validation_auroc = compute_auc(model, validation, num_validation)
+        # print("RMSE (validation) = %f for the model trained with " % validation_rmse + \
+        #       "rank = %d, lambda = %.1f, and numIter = %d." % (rank, lmbda, numIter))
+        print("AUROC = {} for the model trained with rank = {}, lambda = {}, and num_iter = "
+              "{}".format(validation_auroc, rank, lmbda, numIter))
         if validation_rmse < best_validation_rmse:
             best_model = model
             best_validation_rmse = validation_rmse

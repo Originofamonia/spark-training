@@ -21,14 +21,14 @@ parentDir = dirname(dirname(__file__))
 ratingsFile = join(parentDir, "personalRatings.txt")
 
 if isfile(ratingsFile):
-    r = raw_input("Looks like you've already rated the movies. Overwrite ratings (y/N)? ")
+    r = input("Looks like you've already rated the movies. Overwrite ratings (y/N)? ")
     if r and r[0].lower() == "y":
         remove(ratingsFile)
     else:
         sys.exit()
 
 prompt = "Please rate the following movie (1-5 (best), or 0 if not seen): "
-print prompt
+print(prompt)
 
 now = int(time())
 n = 0
@@ -38,10 +38,10 @@ for line in topMovies.split("\n"):
     ls = line.strip().split(",")
     valid = False
     while not valid:
-        rStr = raw_input(ls[1] + ": ")
+        rStr = input(ls[1] + ": ")
         r = int(rStr) if rStr.isdigit() else -1
         if r < 0 or r > 5:
-            print prompt
+            print(prompt)
         else:
             valid = True
             if r > 0:
@@ -50,4 +50,4 @@ for line in topMovies.split("\n"):
 f.close()
 
 if n == 0:
-    print "No rating provided!"
+    print("No rating provided!")

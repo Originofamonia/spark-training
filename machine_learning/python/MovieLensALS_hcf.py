@@ -1,7 +1,8 @@
 # http://ampcamp.berkeley.edu/5/exercises/movie-recommendation-with-mllib.html
 # https://weiminwang.blog/2016/06/09/pyspark-tutorial-building-a-random-forest-binary-classifier-on-unbalanced-dataset/
 """
-stuck at t = concat(t1, t2)
+spark preprocess and spark ALS train
+stuck at t = concat(t1, t2) line151
 """
 import sys
 import itertools
