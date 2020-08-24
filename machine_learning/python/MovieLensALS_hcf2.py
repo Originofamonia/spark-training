@@ -177,8 +177,9 @@ def main():
     # train models and evaluate them on the validation set
     num_partitions = 4
     t_coo = parse_t(t)
-    t_rdd = sc.parallelize(t_coo).repartition(num_partitions)
-    a = t_rdd.collect()
+    # not sure whether should use filter?
+    t_rdd = sc.parallelize(t_coo).filter(lambda x: x[2] > 0).repartition(num_partitions)
+    # a = t_rdd.collect()
     ranks = [8, 12]
     lambdas = [0.1, 10.0]
     num_iters = [10, 20]

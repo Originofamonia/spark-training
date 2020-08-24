@@ -62,8 +62,8 @@ def copy_and_build_projects(opts):
     os.system("cp -r streaming usb/target")
     os.system("cd usb/target/streaming/scala; ../../sbt/sbt assembly")
     # Copy and build machine learning.
-    os.system("cp -r machine-learning usb/target")
-    os.system("cd usb/target/machine-learning/scala; ../../sbt/sbt assembly")
+    os.system("cp -r machine_learning usb/target")
+    os.system("cd usb/target/machine_learning/scala; ../../sbt/sbt assembly")
 
 def copy_readme(opts):
     print "Printing readme with hash %s" % GIT_HASH
