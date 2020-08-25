@@ -12,6 +12,7 @@ import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import NMF
+from sklearn.metrics import roc_auc_score
 from operator import add
 from os.path import join, isfile, dirname
 
@@ -103,11 +104,13 @@ def split_ratings(ratings, b1, b2):
     return training, validation, test
 
 
-def mf_sklearn(t, x_test, y_test):
-    model = NMF(n_components=16, init='random', random_state=0)
+def mf_sklearn(t, x_test, y_test, n_components, n_iter):
+    # https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.NMF.html
+    model = NMF(n_components=n_components, init='random', random_state=0, max_iter=n_iter)
     w = model.fit_transform(t)  # MF
     h = model.components_
-    t_hat = np.dot(w, h)  # matrix completion
+    t_hat = np.dot(w, h)  # matrix completion [1783， 0]
+    a, b = np.max(t_hat), np.min(t_hat)
     u = np.concatenate((x_test, y_test), axis=1)
     scores = np.dot(u, t_hat)
     return scores
@@ -117,13 +120,6 @@ def parse_t(t):
     sparse_t = csr_matrix(t, dtype=int).tocoo()  # used for spark
     mat = np.vstack((sparse_t.row, sparse_t.col, sparse_t.data)).T
     return mat
-
-
-def get_t(x_train, y_train):
-    t1 = np.dot(x_train.T, x_train)
-    t2 = np.dot(y_train.T, x_train)
-    t = np.concatenate((t1, t2), axis=0)  # [7906, 3953]
-    return t
 
 
 def compute_rmse(model, data, n):
@@ -139,7 +135,7 @@ def compute_rmse(model, data, n):
 
 def compute_auc(model, data, n):
     """
-    TODO: haven't finished
+    https://spark.apache.org/docs/2.4.0/mllib-evaluation-metrics.html
     :param model:
     :param data:
     :param n:
@@ -160,12 +156,6 @@ def compute_auc(model, data, n):
 
 
 def main():
-    # set up environment
-    conf = SparkConf().setAppName("MovieLensALS") \
-                      .set("spark.executor.memory", "10g")
-    sc = SparkContext(conf=conf)
-    spark = SparkSession(sc)  # solve the ParallelRDD issue
-
     # load personal ratings
     movie_lens_home_dir = '../../data/movielens/medium/'
     path = '../../data/movielens/medium/ratings.dat'
@@ -184,39 +174,39 @@ def main():
     test_mat = coo_matrix((test[:, 2], (test[:, 0], test[:, 1])), shape=(6041, 3953)).toarray()
     x_train, o_train, y_train = parse_xoy(train_mat, 6041, 3953)
     x_test, o_test, y_test = parse_xoy(test_mat, 6041, 3953)
+    a, b = np.max(x_train), np.min(x_train)
+    c, d = np.max(o_train), np.min(o_train)
+    e = np.unique(x_test)
+    f = np.unique(o_test)
+    g = np.unique(y_test)
+    t1 = np.dot(x_train.T, x_train)  # [0, 1948]
+    t2 = np.dot(y_train.T, x_train)  # [0, 156]
+    # a, b = np.max(t1), np.min(t1)
+    # c, d = np.max(t2), np.min(t2)
+    t = np.concatenate((t1, t2), axis=0)  # [7906, 3953]
 
-    t = get_t(x_train, y_train)
-
-    # train models and evaluate them on the validation set
-    num_partitions = 1000
-    t_coo = parse_t(t)
-    t_list_tuple = list(map(tuple, t_coo))
-    validation_list_tuple = list(map(tuple, validation))
-    test_list_tuple = list(map(tuple, test))
-    # not sure whether should use filter?
-    t_rdd = sc.parallelize(t_list_tuple, num_partitions).filter(lambda x: x[2] > 0)
-    validation_rdd = sc.parallelize(validation_list_tuple, num_partitions)
-    # a = t_rdd.collect()
-    ranks = [8, 12]
-    lambdas = [0.1, 10.0]
-    num_iters = [10, 20]
+    ranks = [40, 80]
+    # lambdas = [0.1, 10.0]
+    num_iters = [200, 300]
     best_model = None
-    best_validation_rmse = float("inf")
+    best_validation_auc = float("-inf")
     best_rank = 0
     best_lambda = -1.0
     best_num_iter = -1
 
-    for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
-        model = ALS.train(t_rdd, rank, numIter, lmbda)
-        validation_rmse = compute_rmse(model, validation_rdd, num_validation)
-        print("RMSE (validation) = %f for the model trained with " % validation_rmse + \
-              "rank = %d, lambda = %.1f, and numIter = %d." % (rank, lmbda, numIter))
-        if validation_rmse < best_validation_rmse:
-            best_model = model
-            best_validation_rmse = validation_rmse
-            best_rank = rank
-            best_lambda = lmbda
-            best_num_iter = numIter
+    for rank, numIter in itertools.product(ranks, num_iters):
+        scores = mf_sklearn(t, x_test, y_test, n_components=rank, n_iter=numIter)  # [0, 23447]
+        a, b = np.max(scores), np.min(scores)
+        auc = roc_auc_score(x_test, scores)
+        print('auc: {}'.format(auc))
+        # print("RMSE (validation) = %f for the model trained with " % validation_rmse + \
+        #       "rank = %d, lambda = %.1f, and numIter = %d." % (rank, lmbda, numIter))
+        # if validation_rmse < best_validation_rmse:
+        #     best_model = model
+        #     best_validation_rmse = validation_rmse
+        #     best_rank = rank
+        #     best_lambda = lmbda
+        #     best_num_iter = numIter
 
     test_rmse = compute_rmse(best_model, test, num_test)
 

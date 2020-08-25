@@ -92,20 +92,6 @@ def compute_rmse(model, data, n):
     return sqrt(predictions_and_ratings.map(lambda x: (x[0] - x[1]) ** 2).reduce(add) / float(n))
 
 
-def compute_auc(model, data, n):
-    """
-    TODO: haven't finished
-    :param model:
-    :param data:
-    :param n:
-    :return:
-    """
-    predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
-    predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
-        .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
-        .values()
-
-
 def main():
     # set up environment
     conf = SparkConf().setAppName("MovieLensALS") \
