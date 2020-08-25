@@ -175,9 +175,9 @@ def main():
     # training, validation, test are all RDDs of (userId, movieId, rating)
     training, validation, test = split_ratings(ratings, 6, 8)
 
-    num_training = training.shape
-    num_validation = validation.shape
-    num_test = test.shape
+    num_training = training.shape[0]
+    num_validation = validation.shape[0]
+    num_test = test.shape[0]
     print("Training: {}, validation: {}, test: {}".format(num_training, num_validation, num_test))
 
     train_mat = coo_matrix((training[:, 2], (training[:, 0], training[:, 1])), shape=(6041, 3953)).toarray()
@@ -196,7 +196,7 @@ def main():
     # not sure whether should use filter?
     t_rdd = sc.parallelize(t_list_tuple, num_partitions).filter(lambda x: x[2] > 0)
     validation_rdd = sc.parallelize(validation_list_tuple, num_partitions)
-    # a = t_rdd.collect()
+    test_rdd = sc.parallelize(test_list_tuple, num_partitions)
     ranks = [8, 12]
     lambdas = [0.1, 10.0]
     num_iters = [10, 20]
@@ -218,7 +218,7 @@ def main():
             best_lambda = lmbda
             best_num_iter = numIter
 
-    test_rmse = compute_rmse(best_model, test, num_test)
+    test_rmse = compute_rmse(best_model, test_rdd, num_test)
 
     # evaluate the best model on the test set
     print("The best model was trained with rank = %d and lambda = %.1f, " % (best_rank, best_lambda) \
