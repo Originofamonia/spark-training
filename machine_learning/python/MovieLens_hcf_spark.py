@@ -7,20 +7,14 @@ use numpy to process matrices
 """
 import sys
 import itertools
-from math import sqrt
 import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import NMF
-from operator import add
 from os.path import join, isfile, dirname
 
 from pyspark import SparkConf, SparkContext
 from pyspark.sql import SparkSession
 from pyspark.mllib.recommendation import ALS
 from pyspark.mllib.evaluation import BinaryClassificationMetrics
-from pyspark.mllib.linalg.distributed import CoordinateMatrix, MatrixEntry, BlockMatrix
-from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
 
 def parse_rating(line):
@@ -106,12 +100,13 @@ def split_ratings(ratings, b1, b2):
 
 def parse_t(t):
     """
-
+    convert sparse matrix (2d) to list of tuple (i, j, value)
     :return:
     """
-    sparse_t = csr_matrix(t, dtype=int).tocoo()  # used for spark
+    sparse_t = csr_matrix(t, dtype=float).tocoo()  # used for spark
     mat = np.vstack((sparse_t.row, sparse_t.col, sparse_t.data)).T
-    return mat
+    t_list_tuple = list(map(tuple, mat))
+    return t_list_tuple
 
 
 def sigmoid(x):
@@ -194,8 +189,7 @@ def main():
 
     # train models and evaluate them on the validation set
     num_partitions = 1000
-    t_coo = parse_t(t)
-    t_list_tuple = list(map(tuple, t_coo))
+    t_list_tuple = parse_t(t)
     validation_list_tuple = list(map(tuple, validation))
     test_list_tuple = list(map(tuple, test))
     # not sure whether should use filter?
@@ -214,7 +208,8 @@ def main():
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
         model = ALS.train(t_rdd, rank, numIter, lmbda)
         validation_auc = spark_inference(model, validation_rdd)
-
+        print("The best model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "
+              "validation set is {}.".format(best_rank, best_lambda, best_num_iter, validation_auc))
         if validation_auc > best_validation_auc:
             best_model = model
             best_validation_auc = validation_auc
