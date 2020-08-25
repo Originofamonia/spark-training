@@ -11,7 +11,7 @@ from pyspark import SparkConf, SparkContext
 from pyspark.mllib.recommendation import ALS
 from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
-from machine_learning.python.MovieLensALS_hcf2 import compute_auc
+from machine_learning.python.MovieLens_hcf_spark import spark_inference
 
 
 def parse_rating(line):
@@ -130,7 +130,7 @@ def main():
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
         model = ALS.train(training, rank, numIter, lmbda)
         validation_rmse = compute_rmse(model, validation, num_validation)
-        validation_auroc = compute_auc(model, validation, num_validation)
+        validation_auroc = spark_inference(model, validation, num_validation)
         # print("RMSE (validation) = %f for the model trained with " % validation_rmse + \
         #       "rank = %d, lambda = %.1f, and numIter = %d." % (rank, lmbda, numIter))
         print("AUROC = {} for the model trained with rank = {}, lambda = {}, and num_iter = "
