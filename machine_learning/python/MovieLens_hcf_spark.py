@@ -172,7 +172,11 @@ def main():
     conf = SparkConf().setAppName("MovieLensALS") \
                       .set("spark.executor.memory", "10g")
     sc = SparkContext(conf=conf)
-    spark = SparkSession(sc)  # solve the ParallelRDD issue
+    spark = SparkSession.builder \
+        .master('local[*]') \
+        .config("spark.driver.memory", "15g") \
+        .appName('my-cool-app') \
+        .getOrCreate()  # solve the ParallelRDD issue
 
     # load personal ratings
     movie_lens_home_dir = '../../data/movielens/medium/'
