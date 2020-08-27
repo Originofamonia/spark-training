@@ -6,6 +6,7 @@ use numpy to process matrices
     2. stuck at line 195: model = ALS.train(t_rdd, rank, numIter, lmbda)
 """
 import sys
+import os
 import itertools
 from math import sqrt
 import numpy as np
@@ -15,7 +16,20 @@ from sklearn.metrics import roc_auc_score
 # from operator import add
 # from os.path import join, isfile, dirname
 
-from machine_learning.movieLens.MovieLens_spark_hcf import *
+
+def add_path(path):
+    if path not in sys.path:
+        print('Adding {}'.format(path))
+        sys.path.append(path)
+
+
+abs_current_path = os.path.realpath('./')
+root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
+add_path(root_path)
+
+
+from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary, split_ratings,\
+    compute_t, sigmoid, load_ratings
 
 
 def mf_sklearn(t, n_components, n_iter):
@@ -28,12 +42,12 @@ def mf_sklearn(t, n_components, n_iter):
     return t_hat
 
 
-def hcf_inference(t_hat, training, test):
+def hcf_inference(t_hat, training, test, rating_shape):
     """
     sklearn version AUROC
     """
-    x_train, o_train, y_train = generate_xoy(training)
-    x_test, o_test, y_test = generate_xoy_binary(test)
+    x_train, o_train, y_train = generate_xoy(training, rating_shape)
+    x_test, o_test, y_test = generate_xoy_binary(test, rating_shape)
     # a = np.unique(x_test)
     # b = np.count_nonzero(x_test)
     u = np.concatenate((x_train, 0.2 * y_train), axis=1)
@@ -47,27 +61,6 @@ def hcf_inference(t_hat, training, test):
     return auc
 
 
-def pyspark_auc(model, data):
-    """
-    https://spark.apache.org/docs/2.4.0/mllib-evaluation-metrics.html
-    :param model:
-    :param data:
-    :return:
-    """
-    predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
-    predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
-        .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
-        .values()
-
-    metrics = BinaryClassificationMetrics(predictions_and_ratings)
-    # Area under precision-recall curve
-    print("Area under PR = %s" % metrics.areaUnderPR)
-
-    # Area under ROC curve
-    print("Area under ROC = %s" % metrics.areaUnderROC)
-    return metrics.areaUnderROC
-
-
 def main():
     # load personal ratings
     movie_lens_home_dir = '../../data/movielens/medium/'
@@ -75,13 +68,9 @@ def main():
     ratings = load_ratings(path)
     training, validation, test = split_ratings(ratings, 6, 8)
 
-    x_train, o_train, y_train = generate_xoy(training)
+    x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     # x_train, o_train, y_train = generate_xoy_binary(training)
 
-    train_mat = coo_matrix((training[:, 2], (training[:, 0], training[:, 1])), shape=(6041, 3953)).toarray()
-    test_mat = coo_matrix((test[:, 2], (test[:, 0], test[:, 1])), shape=(6041, 3953)).toarray()
-    # num_list = np.unique(train_mat, return_counts=True)
-    # print(num_list)
     t = compute_t(x_train, y_train)
 
     ranks = [30, 40]
@@ -94,7 +83,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)  # [0, 23447]
-        valid_auc = hcf_inference(t_hat, training, validation)
+        valid_auc = hcf_inference(t_hat, training, validation, (6041, 3953))
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:
@@ -103,7 +92,7 @@ def main():
             best_rank = rank
             best_num_iter = num_iter
 
-    test_auc = hcf_inference(best_t, training, test)
+    test_auc = hcf_inference(best_t, training, test, (6041, 3953))
     print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
           "test set is {}.".format(best_rank, best_num_iter, test_auc))
 

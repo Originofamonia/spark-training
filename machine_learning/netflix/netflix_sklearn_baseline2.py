@@ -20,7 +20,7 @@ add_path(root_path)
 
 from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, parse_xoy, parse_xoy_binary, compute_t
 from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, hcf_inference
-from machine_learning.movieLens.MovieLens_sklearn_baseline import compute_s, baseline_inference
+from machine_learning.movieLens.MovieLens_sklearn_baseline2 import baseline2_inference, normalize_s
 from machine_learning.netflix.netflix_sklearn_hcf import split_nflx_ratings, gen_nflx_xoy
 
 
@@ -34,7 +34,7 @@ def main():
     x_train, o_train, y_train = gen_nflx_xoy(training, ratings.shape)
     # x_train, o_train, y_train = gen_nflx_xoy_binary(training, ratings.shape)
 
-    s = compute_s(x_train)
+    s = normalize_s(x_train)
 
     ranks = [30, 40]
     num_iters = [50, 80]
@@ -45,7 +45,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         s_hat = mf_sklearn(s, n_components=rank, n_iter=num_iter)
-        valid_auc = baseline_inference(s_hat, training, validation, ratings.shape)
+        valid_auc = baseline2_inference(s_hat, validation, ratings.shape)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:
@@ -54,7 +54,7 @@ def main():
             best_rank = rank
             best_num_iter = num_iter
 
-    test_auc = baseline_inference(best_t, training, test, ratings.shape)
+    test_auc = baseline2_inference(best_t, test, ratings.shape)
     print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
           "test set is {}.".format(best_rank, best_num_iter, test_auc))
 

@@ -1,86 +1,47 @@
-# https://www.kaggle.com/laowingkin/netflix-movie-recommendation
+# Download the data from: https://www.kaggle.com/laowingkin/netflix-movie-recommendation
 import pandas as pd
 import numpy as np
-import math
-import re
-from scipy.sparse import csr_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-from surprise import Reader, dataset, SVD
-from surprise.model_selection import cross_validate
-
-sns.set_style("darkgrid")
+import itertools
+import sys
+import os
+from scipy.sparse import coo_matrix, csr_matrix
+# import seaborn as sns
 
 
-# Also, a dummy Dataset class
-class Dataset(dataset.DatasetAutoFolds):
-
-    def __init__(self, df, reader):
-        super(Dataset, self).__init__()
-        self.raw_ratings = [(uid, iid, r, None) for (uid, iid, r) in
-                            zip(df['Cust_Id'], df['Movie_Id'], df['Rating'])]
-        self.reader = reader
+def add_path(path):
+    if path not in sys.path:
+        print('Adding {}'.format(path))
+        sys.path.append(path)
 
 
-def recommend(movie_title, min_count, df_title, df_p, df_movie_summary):
-    print("For movie ({})".format(movie_title))
-    print("- Top 10 movies recommended based on Pearsons'R correlation - ")
-    i = int(df_title.index[df_title['Name'] == movie_title][0])
-    target = df_p[i]
-    similar_to_target = df_p.corrwith(target)
-    corr_target = pd.DataFrame(similar_to_target, columns=['PearsonR'])
-    corr_target.dropna(inplace=True)
-    corr_target = corr_target.sort_values('PearsonR', ascending=False)
-    corr_target.index = corr_target.index.map(int)
-    corr_target = corr_target.join(df_title).join(df_movie_summary)[['PearsonR', 'Name', 'count', 'mean']]
-    print(corr_target[corr_target['count'] > min_count][:10].to_string(index=False))
+abs_current_path = os.path.realpath('./')
+root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
+add_path(root_path)
+
+from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, parse_xoy, parse_xoy_binary, compute_t
+from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, hcf_inference
+
+# sns.set_style("darkgrid")
 
 
-def main():
+def get_nflx_rating():
     # Skip date
     df1 = pd.read_csv('../nflx_data/combined_data_1.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
     df2 = pd.read_csv('../nflx_data/combined_data_2.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
     df3 = pd.read_csv('../nflx_data/combined_data_3.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
     df4 = pd.read_csv('../nflx_data/combined_data_4.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
 
-    df1['Rating'] = df1['Rating'].astype(float)
-
     print('Dataset 1 shape: {}'.format(df1.shape))
-    print('-Dataset examples-')
-    print(df1.iloc[::5000000, :])
 
     # load less data for speed
-
     df = df1
-    # df = df.append(df2)
+    # df = df.append(df2)  # Uncomment these to use the whole dataset
     # df = df.append(df3)
     # df = df.append(df4)
     df.index = np.arange(0, len(df))
     print('Full dataset shape: {}'.format(df.shape))
-    print('-Dataset examples-')
-    print(df.iloc[::5000000, :])
 
-    p = df.groupby('Rating')['Rating'].agg(['count'])
-
-    # get movie count
-    movie_count = df.isnull().sum()[1]
-
-    # get customer count
-    cust_count = df['Cust_Id'].nunique() - movie_count
-
-    # get rating count
-    rating_count = df['Cust_Id'].count() - movie_count
-
-    ax = p.plot(kind='barh', legend=False, figsize=(15, 10))
-    plt.title(
-        'Total pool: {:,} Movies, {:,} customers, {:,} ratings given'.format(movie_count, cust_count, rating_count),
-        fontsize=20)
-    plt.axis('off')
-
-    for i in range(1, 6):
-        ax.text(p.iloc[i - 1][0] / 4, i - 1, 'Rating {}: {:.0f}%'.format(i, p.iloc[i - 1][0] * 100 / p.sum()[0]),
-                color='white', weight='bold')
-
+    # Data cleaning
     df_nan = pd.DataFrame(pd.isnull(df.Rating))
     df_nan = df_nan[df_nan['Rating'] == True]
     df_nan = df_nan.reset_index()
@@ -107,11 +68,9 @@ def main():
 
     df['Movie_Id'] = movie_np.astype(int)
     df['Cust_Id'] = df['Cust_Id'].astype(int)
-    print('-Dataset examples-')
-    print(df.iloc[::5000000, :])
 
+    # Data slicing
     f = ['count', 'mean']
-
     df_movie_summary = df.groupby('Movie_Id')['Rating'].agg(f)
     df_movie_summary.index = df_movie_summary.index.map(int)
     movie_benchmark = round(df_movie_summary['count'].quantile(0.7), 0)
@@ -130,51 +89,94 @@ def main():
     df = df[~df['Movie_Id'].isin(drop_movie_list)]
     df = df[~df['Cust_Id'].isin(drop_cust_list)]
     print('After Trim Shape: {}'.format(df.shape))
-    print('-Data Examples-')
-    print(df.iloc[::5000000, :])
 
     # df_p is the rating matrix
     df_p = pd.pivot_table(df, values='Rating', index='Cust_Id', columns='Movie_Id')
-    # until df_p is useful
     print(df_p.shape)
+    df_p = df_p.fillna(0)
+    rating = df_p.to_numpy()
 
-    df_title = pd.read_csv('../nflx_data/movie_titles.csv', encoding="ISO-8859-1", header=None,
-                           names=['Movie_Id', 'Year', 'Name'])
-    df_title.set_index('Movie_Id', inplace=True)
-    print(df_title.head(10))
+    return rating
 
-    reader = Reader()
 
-    # get just top 100K rows for faster run time
-    data = Dataset(df[['Cust_Id', 'Movie_Id', 'Rating']][:100000], reader)
-    data.split(n_folds=3)
+def sparse_to_coo(t):
+    """
+    convert sparse matrix (2d) to list of tuple (i, j, value)
+    :return: [i, j, rating]
+    """
+    sparse_t = csr_matrix(t, dtype=float).tocoo()
+    coo = np.vstack((sparse_t.row, sparse_t.col, sparse_t.data)).T
+    np.random.shuffle(coo)
+    return coo
 
-    svd = SVD()
-    cross_validate(svd, data, measures=['RMSE', 'MAE'])
 
-    df_785314 = df[(df['Cust_Id'] == 785314) & (df['Rating'] == 5)]
-    df_785314 = df_785314.set_index('Movie_Id')
-    df_785314 = df_785314.join(df_title)['Name']
-    print(df_785314)
+def split_nflx_ratings(ratings, b1, b2):
+    """
+    :param ratings: sparse matrix
+    :return: training, validation, test: [i, j, rating]
+    """
+    coo = sparse_to_coo(ratings)
+    full_len = len(coo)
+    training = coo[:int(full_len * b1)]
+    validation = coo[int(full_len * b1):int(full_len * b2)]
+    test = coo[int(full_len * b2):]
 
-    user_785314 = df_title.copy()
-    user_785314 = user_785314.reset_index()
-    user_785314 = user_785314[~user_785314['Movie_Id'].isin(drop_movie_list)]
+    return training, validation, test
 
-    # getting full dataset
-    data = Dataset.load_from_df(df[['Cust_Id', 'Movie_Id', 'Rating']], reader)
 
-    trainset = data.build_full_trainset()
-    svd.train(trainset)
+def gen_nflx_xoy(coo_mat, rating_shape):
+    """
+    convert coordinate matrix [i, j, value] to sparse matrix (2d)
+    :return: sparse matrix (2d)
+    """
+    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
+    x, o, y = parse_xoy(mat, mat.shape[0], mat.shape[1])
+    return x, o, y
 
-    user_785314['Estimate_Score'] = user_785314['Movie_Id'].apply(lambda x: svd.predict(785314, x).est)
 
-    user_785314 = user_785314.drop('Movie_Id', axis=1)
+def gen_nflx_xoy_binary(coo_mat, rating_shape):
+    """
+    convert coordinate matrix [i, j, value] to sparse matrix (2d)
+    :return: sparse matrix (2d)
+    """
+    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
+    x, o, y = parse_xoy_binary(mat, mat.shape[0], mat.shape[1])
+    return x, o, y
 
-    user_785314 = user_785314.sort_values('Estimate_Score', ascending=False)
-    print(user_785314.head(10))
 
-    recommend("What the #$*! Do We Know!?", 0)
+def main():
+    rating_filename = "nflx_rating.npy"
+    # ratings = get_nflx_rating()  # only need run once
+    # np.save(rating_filename, ratings)
+
+    ratings = np.load(rating_filename)
+    training, validation, test = split_nflx_ratings(ratings, 0.6, 0.8)
+    x_train, o_train, y_train = gen_nflx_xoy(training, ratings.shape)
+    # x_train, o_train, y_train = gen_nflx_xoy_binary(training, ratings.shape)
+
+    t = compute_t(x_train, y_train)
+
+    ranks = [30, 40]
+    num_iters = [50, 80]
+    best_t = None
+    best_validation_auc = float("-inf")
+    best_rank = 0
+    best_num_iter = 0
+
+    for rank, num_iter in itertools.product(ranks, num_iters):
+        t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)  # [0, 23447]
+        valid_auc = hcf_inference(t_hat, training, validation, ratings.shape)
+        print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
+              "validation set is {}.".format(rank, num_iter, valid_auc))
+        if valid_auc > best_validation_auc:
+            best_t = t_hat
+            best_validation_auc = valid_auc
+            best_rank = rank
+            best_num_iter = num_iter
+
+    test_auc = hcf_inference(best_t, training, test, ratings.shape)
+    print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
+          "test set is {}.".format(best_rank, best_num_iter, test_auc))
 
 
 if __name__ == '__main__':

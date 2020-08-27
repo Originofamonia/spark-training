@@ -46,7 +46,7 @@ def parse_xoy(mat, n_users, n_items):
     return x, o, y
 
 
-def parse_xoy_label(mat, n_users, n_items):
+def parse_xoy_binary(mat, n_users, n_items):
     """
     Parses a sparse matrix to x, o, y
     :return:
@@ -137,42 +137,30 @@ def compute_t(x_train, y_train):
     return t
 
 
-def generate_xoy(coo_mat):
+def generate_xoy(coo_mat, rating_shape):
     """
     convert coordinate matrix [i, j, value] to sparse matrix (2d)
     :return: sparse matrix (2d)
     """
-    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=(6041, 3953)).toarray()
+    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
     x, o, y = parse_xoy(mat, mat.shape[0], mat.shape[1])
     return x, o, y
 
 
-def generate_xoy_binary(coo_mat):
+def generate_xoy_binary(coo_mat, rating_shape):
     """
     convert coordinate matrix [i, j, value] to sparse matrix (2d)
     :return: sparse matrix (2d)
     """
-    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=(6041, 3953)).toarray()
-    x, o, y = parse_xoy_label(mat, mat.shape[0], mat.shape[1])
+    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
+    x, o, y = parse_xoy_binary(mat, mat.shape[0], mat.shape[1])
     return x, o, y
-
-
-def hcf_inference(t, x, y):
-    """
-
-    :param t: t is after matrix completion
-    :param x: x_train
-    :param y: y_train
-    :return: AUROC
-    """
-    pass
 
 
 def spark_inference(model, data):
     """
     :param model:
     :param data:
-    :param n:
     :return:
     """
     predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
