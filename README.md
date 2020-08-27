@@ -1,7 +1,6 @@
 # HCF dev
-## MovieLens
 Create a python virtual environment (pyspark). Required packages: pyspark, scipy, numpy, itertools, sklearn
-
+## MovieLens
 movieLens: in `machine_learning/movieLens/`
 
 sklearn hcf is in `MovieLens_sklearn_hcf.py`
@@ -17,6 +16,7 @@ Change training data between continuous rating and binary rating [0, 1]: in `Mov
 Change hcf's beta * Y: in `MovieLens_sklearn_hcf.py` function `hcf_inference(t_hat, training, test)` line 39: `u = np.concatenate((x_train, 0.2 * y_train), axis=1)`. 0.2 is beta.
 ## Netflix
 Netflix code is in `machine_learning/netflix`
+
 Download the dataset from `https://www.kaggle.com/laowingkin/netflix-movie-recommendation`, and put into `nflx_data` folder next to `netflix`.
 
 sklearn hcf is in `netflix_sklearn_hcf.py`
