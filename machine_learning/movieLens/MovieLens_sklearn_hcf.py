@@ -76,6 +76,7 @@ def main():
     training, validation, test = split_ratings(ratings, 6, 8)
 
     x_train, o_train, y_train = generate_xoy(training)
+    # x_train, o_train, y_train = generate_xoy_binary(training)
 
     train_mat = coo_matrix((training[:, 2], (training[:, 0], training[:, 1])), shape=(6041, 3953)).toarray()
     test_mat = coo_matrix((test[:, 2], (test[:, 0], test[:, 1])), shape=(6041, 3953)).toarray()
