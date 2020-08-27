@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env movieLens
 # -*- coding: utf-8 -*-
 #
-# Simple python script for generating the spark USB.
+# Simple movieLens script for generating the spark USB.
 #   Always run this script from the spark-training root directory.
 # % ./build_usb.py
 #

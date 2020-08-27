@@ -1,16 +1,23 @@
-# Spark Camp training materials.
+# HCF dev
 
-This project holds the resources used for Spark Camp and other related training events. 
-The contents are as follows:
+Create a python virtual environment (pyspark). Required packages: pyspark, scipy, numpy, itertools, 
 
- * website - the jekyll-based website material hosted for training events
- * data - datasets used in the labs
- * sbt - a custom-configured version of sbt set-up to use a local cache when using a USB
- * simple-app - a toy project to test sbt builds
- * streaming - a streaming application used for labs
- * machine-learning - an ML application used for labs
- * build_usb.py - a build script for making the training usb
 
-# License
+movieLens: in `machine_learning/movieLens/`
 
-This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License. To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/ or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+sklearn hcf is in `MovieLens_sklearn_hcf.py`
+
+sklearn baseline (x.T * x) is in `MovieLens_sklearn_baseline.py` 
+
+sklearn baseline2 (MF(x_train)) is in `MovieLens_sklearn_baseline2.py`
+
+Change [0, 1] rating threshold in `MovieLens_spark_hcf.py`, function `parse_xoy_label(mat, n_users, n_items)`, line 55: `mat >= 3`
+
+Change training data between continuous rating and binary rating [0, 1]: in `MovieLens_sklearn_hcf.py`, `MovieLens_sklearn_baseline.py`, `MovieLens_sklearn_baseline2.py`'s main function: change between `x_train, o_train, y_train = generate_xoy(training)` and `x_train, o_train, y_train = generate_xoy_binary(training)`
+
+Change hcf's beta * Y: in `MovieLens_sklearn_hcf.py` function `hcf_inference(t_hat, training, test)` line 39: `u = np.concatenate((x_train, 0.2 * y_train), axis=1)`. 0.2 is beta.
+
+## progress
+MovieLens is done.
+
+Netflix is ongoing.

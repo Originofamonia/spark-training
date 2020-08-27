@@ -11,7 +11,7 @@ from pyspark import SparkConf, SparkContext
 from pyspark.mllib.recommendation import ALS
 from pyspark.mllib.evaluation import MulticlassMetrics as metric
 
-from machine_learning.python.MovieLens_hcf_spark import spark_inference
+from machine_learning.movieLens.MovieLens_spark_hcf import spark_inference
 
 
 def parse_rating(line):

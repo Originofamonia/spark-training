@@ -18,8 +18,7 @@ lib_dir = os.path.join(root_path, 'lib')
 add_path(root_path)
 add_path(abs_current_path)
 
-# from machine_learning.python.MovieLensALS import compute_rmse
-
+# from machine_learning.movieLens.MovieLensALS import compute_rmse
 
 
 def small_matrix_sklearn():

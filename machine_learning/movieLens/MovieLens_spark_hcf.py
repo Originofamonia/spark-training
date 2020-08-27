@@ -35,15 +35,27 @@ def parse_movie(line):
 
 def parse_xoy(mat, n_users, n_items):
     """
-    Parses a training matrix to x, o, y
+    Parses a sparse matrix to x, o, y
+    :return:
+    """
+    o = np.clip(mat, 0, 1)  # O
+    # x = (mat >= 3) * np.ones((n_users, n_items))  # X, split [0, 1, 2] -> 0, [3, 4, 5] -> 1
+    x = mat / 5
+    # y = o - x
+    y = (6 - mat) / 5  # Y
+    return x, o, y
+
+
+def parse_xoy_label(mat, n_users, n_items):
+    """
+    Parses a sparse matrix to x, o, y
     :return:
     """
     o = np.clip(mat, 0, 1)  # O
     x = (mat >= 3) * np.ones((n_users, n_items))  # X, split [0, 1, 2] -> 0, [3, 4, 5] -> 1
-    y = o - x  # Y
-    # a = np.unique(o)
-    # b = np.unique(x)
-    # c = np.unique(y)
+    # x = mat / 5
+    y = o - x
+    # y = (6 - mat) / 5  # Y
     return x, o, y
 
 
@@ -135,6 +147,16 @@ def generate_xoy(coo_mat):
     return x, o, y
 
 
+def generate_xoy_binary(coo_mat):
+    """
+    convert coordinate matrix [i, j, value] to sparse matrix (2d)
+    :return: sparse matrix (2d)
+    """
+    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=(6041, 3953)).toarray()
+    x, o, y = parse_xoy_label(mat, mat.shape[0], mat.shape[1])
+    return x, o, y
+
+
 def hcf_inference(t, x, y):
     """
 
@@ -174,15 +196,13 @@ def main():
     sc = SparkContext(conf=conf)
     spark = SparkSession.builder \
         .master('local[*]') \
-        .config("spark.driver.memory", "15g") \
-        .appName('my-cool-app') \
+        .config("spark.driver.memory", "10g") \
         .getOrCreate()  # solve the ParallelRDD issue
 
     # load personal ratings
     movie_lens_home_dir = '../../data/movielens/medium/'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-
     training, validation, test = split_ratings(ratings, 6, 8)
 
     x_train, o_train, y_train = generate_xoy(training)
