@@ -12,7 +12,7 @@ from math import sqrt
 import numpy as np
 # from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.decomposition import NMF
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve
 # from operator import add
 # from os.path import join, isfile, dirname
 
@@ -42,7 +42,7 @@ def mf_sklearn(t, n_components, n_iter):
     return t_hat
 
 
-def hcf_inference(t_hat, training, test, rating_shape):
+def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
     """
     sklearn version AUROC
     """
@@ -58,12 +58,15 @@ def hcf_inference(t_hat, training, test, rating_shape):
     y_scores = all_scores[o_test > 0]
     y_true = x_test[o_test > 0]
     auc = roc_auc_score(y_true, y_scores)
+    precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
+    np.save(pr_curve_filename, (precision, recall, thresholds))
     return auc
 
 
 def main():
     # load personal ratings
     movie_lens_home_dir = '../../data/movielens/medium/'
+    pr_curve_filename = 'movieLen_base2.npy'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)
     training, validation, test = split_ratings(ratings, 6, 8)
@@ -83,7 +86,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)  # [0, 23447]
-        valid_auc = hcf_inference(t_hat, training, validation, (6041, 3953))
+        valid_auc = hcf_inference(t_hat, training, validation, (6041, 3953), pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:
@@ -92,7 +95,7 @@ def main():
             best_rank = rank
             best_num_iter = num_iter
 
-    test_auc = hcf_inference(best_t, training, test, (6041, 3953))
+    test_auc = hcf_inference(best_t, training, test, (6041, 3953), pr_curve_filename)
     print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
           "test set is {}.".format(best_rank, best_num_iter, test_auc))
 

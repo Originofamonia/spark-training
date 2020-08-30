@@ -25,6 +25,7 @@ from machine_learning.netflix.netflix_sklearn_hcf import split_nflx_ratings, gen
 
 
 def main():
+    pr_curve_filename = 'nflx_base1.npy'
     rating_filename = "nflx_rating.npy"
     # ratings = get_nflx_rating()  # only need run once
     # np.save(rating_filename, ratings)
@@ -45,7 +46,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         s_hat = mf_sklearn(s, n_components=rank, n_iter=num_iter)
-        valid_auc = baseline_inference(s_hat, training, validation, ratings.shape)
+        valid_auc = baseline_inference(s_hat, training, validation, ratings.shape, pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:
@@ -54,7 +55,7 @@ def main():
             best_rank = rank
             best_num_iter = num_iter
 
-    test_auc = baseline_inference(best_t, training, test, ratings.shape)
+    test_auc = baseline_inference(best_t, training, test, ratings.shape, pr_curve_filename)
     print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
           "test set is {}.".format(best_rank, best_num_iter, test_auc))
 

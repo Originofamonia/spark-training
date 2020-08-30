@@ -5,7 +5,6 @@ import itertools
 import sys
 import os
 from scipy.sparse import coo_matrix, csr_matrix
-# import seaborn as sns
 
 
 def add_path(path):
@@ -20,8 +19,6 @@ add_path(root_path)
 
 from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, parse_xoy, parse_xoy_binary, compute_t
 from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, hcf_inference
-
-# sns.set_style("darkgrid")
 
 
 def get_nflx_rating():
@@ -145,6 +142,7 @@ def gen_nflx_xoy_binary(coo_mat, rating_shape):
 
 
 def main():
+    pr_curve_filename = 'nflx_hcf.npy'
     rating_filename = "nflx_rating.npy"
     # ratings = get_nflx_rating()  # only need run once
     # np.save(rating_filename, ratings)
@@ -165,7 +163,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)  # [0, 23447]
-        valid_auc = hcf_inference(t_hat, training, validation, ratings.shape)
+        valid_auc = hcf_inference(t_hat, training, validation, ratings.shape, pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:
@@ -174,7 +172,7 @@ def main():
             best_rank = rank
             best_num_iter = num_iter
 
-    test_auc = hcf_inference(best_t, training, test, ratings.shape)
+    test_auc = hcf_inference(best_t, training, test, ratings.shape, pr_curve_filename)
     print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
           "test set is {}.".format(best_rank, best_num_iter, test_auc))
 
