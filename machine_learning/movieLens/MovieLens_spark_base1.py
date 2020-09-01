@@ -16,7 +16,7 @@ import numpy as np
 import tqdm
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 from pyspark.mllib.evaluation import BinaryClassificationMetrics
-from pyspark.mllib.recommendation import ALS, Rating, MatrixFactorizationModel
+from pyspark.mllib.recommendation import ALS, Rating
 from pyspark.sql import SparkSession
 from scipy.sparse import coo_matrix
 
@@ -114,7 +114,17 @@ def split_ratings(ratings, b1, b2):
     return training, validation, test
 
 
-def parse_t(t):
+def compute_s(x_train):
+    s = np.dot(x_train.T, x_train)
+    mask = s > 0
+    s_norm = (s - np.min(s[mask])) / (np.max(s[mask]) - np.min(s[mask]))  # only normalize t1 > 0
+    s_norm = s_norm * mask
+    s_norm[s_norm < 1e-1] = 0
+
+    return s_norm
+
+
+def parse_s(t):
     """
     convert sparse matrix (2d) to list of tuple (i, j, value)
     :return:
@@ -124,34 +134,12 @@ def parse_t(t):
         for j in range(t.shape[1]):
             if t[i][j] > 1e-6:
                 t_list_tuple.append((i, j, t[i][j]))
-    #
+
     # sparse_t = csr_matrix(t, dtype=float).tocoo()  # used for spark
     # a = np.unique(sparse_t.data, return_counts=True)
     # mat = np.vstack((sparse_t.row, sparse_t.col, sparse_t.data)).T  # has data == 0
     # t_list_tuple = list(map(tuple, mat))
     return t_list_tuple
-
-
-def sigmoid(x):
-    z = 1 / (1 + np.exp(-x))
-    return z
-
-
-def compute_t(x_train, y_train):
-    t1 = np.dot(x_train.T, x_train)
-    mask1 = t1 > 0
-    t1_norm = (t1 - np.min(t1[mask1])) / (np.max(t1[mask1]) - np.min(t1[mask1]))  # only normalize t1 > 0
-    t1_norm = t1_norm * mask1
-    t1_norm[t1_norm < 1e-1] = 0
-
-    t2 = np.dot(y_train.T, x_train)
-    mask2 = t2 > 0
-    t2_norm = (t2 - np.min(t2[mask2])) / (np.max(t2[mask2]) - np.min(t2[mask2]))  # only normalize t2 > 0
-    t2_norm = t2_norm * mask2
-    t2_norm[t2_norm < 1e-1] = 0
-    t_norm = np.concatenate((t1_norm, t2_norm), axis=0)  # [7906, 3953]
-
-    return t_norm
 
 
 def normalize_validation(validation):
@@ -185,37 +173,36 @@ def get_list_tuples():
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, validation, test = split_ratings(ratings, 6, 8)  # (i, j, value)
-    if not os.path.isfile('t.pkl'):
+    if not os.path.isfile('s.pkl'):
         x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
-        t = compute_t(x_train, y_train)
+
+        s = compute_s(x_train)
 
         # train models and evaluate them on the validation set
-        t_list_tuple = parse_t(t)
-        with open('t.pkl', 'wb') as fh:
-            pickle.dump(t_list_tuple, fh)
+        s_list_tuple = parse_s(s)
+        with open('s.pkl', 'wb') as fh:
+            pickle.dump(s_list_tuple, fh)
         exit()
     else:
-        # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
-        # t = compute_t(x_train, y_train)
-        with open("t.pkl", "rb") as fh:
-            t_list_tuple = pickle.load(fh)
+        with open("s.pkl", "rb") as fh:
+            s_list_tuple = pickle.load(fh)
 
     validation = normalize_validation(validation)
     test = normalize_validation(test)
 
     validation_list_tuple = list(map(tuple, validation))  # i, j, value
     test_list_tuple = list(map(tuple, test))
-    return t_list_tuple, validation_list_tuple, test_list_tuple
+    return s_list_tuple, validation_list_tuple, test_list_tuple
 
 
-def manual_inference(t_hat):
+def manual_inference(s_hat):
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, validation, test = split_ratings(ratings, 6, 8)
     x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
-    u = np.concatenate((x_train, 0.2 * y_train), axis=1)
-    all_scores = np.dot(u, t_hat)  # [6041, 3953]
+
+    all_scores = np.dot(x_train, s_hat)  # [6041, 3953]
     # all_scores intersect with o_test
     all_scores_norm = (all_scores - np.min(all_scores)) / (np.max(all_scores) - np.min(all_scores))
     y_scores = all_scores_norm[o_test > 0]
@@ -226,31 +213,10 @@ def manual_inference(t_hat):
     return auc_score
 
 
-def spark_inference(model, data):
-    """
-    :param model:
-    :param data:
-    :return:
-    """
-    predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
-    predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
-        .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
-        .values()
-
-    metrics = BinaryClassificationMetrics(predictions_and_ratings)
-    # Area under precision-recall curve
-    print("Area under PR = %s" % metrics.areaUnderPR)
-
-    # Area under ROC curve
-    print("Area under ROC = %s" % metrics.areaUnderROC)
-    return metrics.areaUnderROC
-
-
 def spark_matrix_completion(model, t_shape, rank):
     """
     complete the usr, item matrices with 0s
     :param model:
-    :param data:
     :param t_shape:
     :return: completed usr, item matrices
     """
@@ -268,13 +234,34 @@ def spark_matrix_completion(model, t_shape, rank):
     return t_hat
 
 
+def spark_inference(model, data):
+    """
+    :param model:
+    :param data:
+    :return:
+    """
+
+    predictions = model.predictAll(data.map(lambda x: (x[0], x[1])))
+    predictions_and_ratings = predictions.map(lambda x: ((x[0], x[1]), x[2])) \
+        .join(data.map(lambda x: ((x[0], x[1]), x[2]))) \
+        .values()
+
+    metrics = BinaryClassificationMetrics(predictions_and_ratings)
+    # Area under precision-recall curve
+    print("Area under PR = %s" % metrics.areaUnderPR)
+
+    # Area under ROC curve
+    print("Area under ROC = %s" % metrics.areaUnderROC)
+    return metrics.areaUnderROC
+
+
 def main():
     t_list_tuple, validation_list_tuple, test_list_tuple = get_list_tuples()
     # set up environment
     spark = SparkSession.builder \
         .master('local[*]') \
-        .config("spark.driver.memory", "7g") \
-        .getOrCreate()  # solve the ParallelRDD issue
+        .config("spark.driver.memory", "5g") \
+        .getOrCreate()
     sc = spark.sparkContext
 
     num_partitions = 2
@@ -297,7 +284,7 @@ def main():
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
 
         model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
-        t_hat = spark_matrix_completion(model, (7906, 3953), rank)
+        t_hat = spark_matrix_completion(model, (3953, 3953), rank)
         validation_auc = manual_inference(t_hat)
         # validation_auc = spark_inference(model, validation_rdd)
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "

@@ -5,7 +5,7 @@ import itertools
 import sys
 import os
 from scipy.sparse import coo_matrix, csr_matrix
-# import seaborn as sns
+from machine_learning.netflix.netflix_sklearn_hcf import get_nflx_rating
 
 
 def add_path(path):

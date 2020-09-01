@@ -5,7 +5,7 @@ import itertools
 import sys
 import os
 from scipy.sparse import coo_matrix, csr_matrix
-# import seaborn as sns
+from machine_learning.netflix.netflix_sklearn_hcf import get_nflx_rating
 
 
 def add_path(path):
@@ -26,9 +26,9 @@ from machine_learning.netflix.netflix_sklearn_hcf import split_nflx_ratings, gen
 
 def main():
     pr_curve_filename = 'nflx_base2.npy'
-    rating_filename = "nflx_rating.npy"
-    # ratings = get_nflx_rating()  # only need run once
-    # np.save(rating_filename, ratings)
+    rating_filename = "nflx_rating_all.npy"
+    ratings = get_nflx_rating()  # only need run once
+    np.save(rating_filename, ratings)
 
     ratings = np.load(rating_filename)
     training, validation, test = split_nflx_ratings(ratings, 0.6, 0.8)

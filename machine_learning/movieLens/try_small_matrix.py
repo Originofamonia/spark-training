@@ -29,27 +29,32 @@ def small_matrix_sklearn():
 
 
 def try_small_matrix_spark():
-    rank = 2
-    num_iter = 22
-    lmbda = 0.1
-    ratings = [(0, 0, 1),
-               (1, 2, 1),
-               (2, 3, 1),
-               (3, 1, 1)]
+    rank = 1
+    num_iter = 20
+    lmbda = 0.01
+    # ratings = [(0, 0, 1),
+    #            (1, 2, 1),
+    #            (2, 3, 1),
+    #            (3, 1, 1)]
+    training = [(0, 0, 1.0),
+                (1, 1, 1.0)]
 
-    validation = [(0, 3, 1),
-                  (2, 1, 1)]
+    validation = [(0, 0, 1),
+                  (0, 1, 1),
+                  (1, 0, 1),
+                  (1, 1, 1)]
     num_validation = 2
 
     conf = SparkConf().setAppName("MovieLensALS") \
         .set("spark.executor.memory", "1g")
     sc = SparkContext(conf=conf)
     # spark = SparkSession(sc)  # solve the ParallelRDD issue
-    ratings_rdd = sc.parallelize(ratings)
+    ratings_rdd = sc.parallelize(training)
     validation_rdd = sc.parallelize(validation)
-    model = ALS.train(ratings_rdd, rank, num_iter, lmbda)
-    validation_rmse = compute_rmse(model, validation_rdd, num_validation)
-    print(validation_rmse)
+    model = ALS.train(ratings_rdd, rank, num_iter, lmbda, nonnegative=True, seed=44444)
+    predictions = model.predictAll(validation_rdd.map(lambda x: (x[0], x[1])))
+    pred = predictions.collect()
+    print(pred)
 
 
 if __name__ == '__main__':

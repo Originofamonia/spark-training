@@ -10,7 +10,7 @@ import os
 import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.decomposition import NMF
-from sklearn.metrics import roc_auc_score, precision_recall_curve
+from sklearn.metrics import roc_auc_score, precision_recall_curve, roc_curve
 import matplotlib.pyplot as plt
 # from os.path import join, isfile, dirname
 
@@ -43,15 +43,20 @@ def baseline2_inference(s_hat, test, rating_sahpe, pr_curve_filename):
     """
     sklearn version AUROC
     """
+    fpr = dict()
+    tpr = dict()
     # x_train, o_train, y_train = generate_xoy_binary(training, rating_sahpe)
     x_test, o_test, y_test = generate_xoy_binary(test, rating_sahpe)
 
     y_scores = s_hat[o_test > 0]  # exclude unobserved
-    y_true = x_test[o_test > 0] 
-    auc = roc_auc_score(y_true, y_scores)
+    y_true = x_test[o_test > 0]  # [0, 1]
+    a = len(np.unique(y_true))
+    auc_score = roc_auc_score(y_true, y_scores)
+    for i in range(len(np.unique(y_true))):
+        pass
     precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
     np.save(pr_curve_filename, (precision, recall, thresholds))
-    return auc
+    return auc_score
 
 
 def draw_pr():
@@ -67,6 +72,7 @@ def draw_pr():
     hcf = plt.plot(re_h, pr_h, c='y', label='hcf')
     plt.xlabel('Recall')
     plt.ylabel('Precision')
+    plt.grid()
     plt.legend()
     plt.show()
 
@@ -83,7 +89,7 @@ def main():
 
     s = normalize_s(x_train)
 
-    ranks = [30, 40]
+    ranks = [16, 25]
     num_iters = [50, 80]
     best_t = None
     best_validation_auc = float("-inf")
@@ -108,5 +114,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # main()
-    draw_pr()
+    main()
+    # draw_pr()

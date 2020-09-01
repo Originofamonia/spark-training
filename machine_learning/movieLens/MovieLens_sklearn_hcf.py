@@ -42,6 +42,10 @@ def mf_sklearn(t, n_components, n_iter):
     return t_hat
 
 
+def regression_model():
+    pass
+
+
 def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
     """
     sklearn version AUROC
@@ -57,10 +61,10 @@ def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
     all_scores = sigmoid(all_scores_norm)
     y_scores = all_scores[o_test > 0]
     y_true = x_test[o_test > 0]
-    auc = roc_auc_score(y_true, y_scores)
+    auc_score = roc_auc_score(y_true, y_scores)
     precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
     np.save(pr_curve_filename, (precision, recall, thresholds))
-    return auc
+    return auc_score
 
 
 def main():
@@ -85,7 +89,9 @@ def main():
     best_num_iter = -1
 
     for rank, num_iter in itertools.product(ranks, num_iters):
-        t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)  # [0, 23447]
+        # t = np.array([[1, 0], [0, 1]])
+        t_hat = mf_sklearn(t, n_components=1, n_iter=200)
+        print(t_hat)
         valid_auc = hcf_inference(t_hat, training, validation, (6041, 3953), pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))

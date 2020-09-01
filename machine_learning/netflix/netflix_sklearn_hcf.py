@@ -32,9 +32,9 @@ def get_nflx_rating():
 
     # load less data for speed
     df = df1
-    # df = df.append(df2)  # Uncomment these to use the whole dataset
-    # df = df.append(df3)
-    # df = df.append(df4)
+    df = df.append(df2)  # Uncomment these to use the whole dataset
+    df = df.append(df3)
+    df = df.append(df4)
     df.index = np.arange(0, len(df))
     print('Full dataset shape: {}'.format(df.shape))
 

@@ -3,7 +3,7 @@
 """
 use numpy to process matrices
     1. use sklearn's MF (done)
-    2. stuck at line 195: model = ALS.train(t_rdd, rank, numIter, lmbda)
+    2. T = concat(X, Y), evaluate on left half of T* only
 """
 import itertools
 import os
@@ -19,22 +19,6 @@ from pyspark.mllib.evaluation import BinaryClassificationMetrics
 from pyspark.mllib.recommendation import ALS, Rating, MatrixFactorizationModel
 from pyspark.sql import SparkSession
 from scipy.sparse import coo_matrix
-
-
-def parse_rating(line):
-    """
-    Parses a rating record in MovieLens format userId::movieId::rating::timestamp .
-    """
-    fields = line.strip().split("::")
-    return int(fields[3]) % 10, (int(fields[0]), int(fields[1]), float(fields[2]))
-
-
-def parse_movie(line):
-    """
-    Parses a movie record in MovieLens format movieId::movieTitle .
-    """
-    fields = line.strip().split("::")
-    return int(fields[0]), fields[1]
 
 
 def parse_xoy(mat, n_users, n_items):
@@ -122,7 +106,7 @@ def parse_t(t):
     t_list_tuple = []
     for i in tqdm.tqdm(range(t.shape[0])):
         for j in range(t.shape[1]):
-            if t[i][j] > 1e-6:
+            if t[i][j] > 1e-1:
                 t_list_tuple.append((i, j, t[i][j]))
     #
     # sparse_t = csr_matrix(t, dtype=float).tocoo()  # used for spark
@@ -138,18 +122,12 @@ def sigmoid(x):
 
 
 def compute_t(x_train, y_train):
-    t1 = np.dot(x_train.T, x_train)
-    mask1 = t1 > 0
-    t1_norm = (t1 - np.min(t1[mask1])) / (np.max(t1[mask1]) - np.min(t1[mask1]))  # only normalize t1 > 0
-    t1_norm = t1_norm * mask1
-    t1_norm[t1_norm < 1e-1] = 0
 
-    t2 = np.dot(y_train.T, x_train)
-    mask2 = t2 > 0
-    t2_norm = (t2 - np.min(t2[mask2])) / (np.max(t2[mask2]) - np.min(t2[mask2]))  # only normalize t2 > 0
-    t2_norm = t2_norm * mask2
-    t2_norm[t2_norm < 1e-1] = 0
-    t_norm = np.concatenate((t1_norm, t2_norm), axis=0)  # [7906, 3953]
+    t = np.concatenate((x_train, y_train), axis=0)
+    mask = t > 0
+    t_norm = (t - np.min(t[mask])) / (np.max(t[mask]) - np.min(t[mask]))  # only normalize t > 0
+    t_norm = t_norm * mask
+    t_norm[t_norm < 2e-1] = 0
 
     return t_norm
 
@@ -181,23 +159,23 @@ def generate_xoy_binary(coo_mat, rating_shape):
 
 def get_list_tuples():
     # load personal ratings
-    movie_lens_home_dir = '../../data/movielens/medium/'
+    t_file = 't4.pkl'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, validation, test = split_ratings(ratings, 6, 8)  # (i, j, value)
-    if not os.path.isfile('t.pkl'):
+    if not os.path.isfile(t_file):
         x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
         t = compute_t(x_train, y_train)
 
         # train models and evaluate them on the validation set
         t_list_tuple = parse_t(t)
-        with open('t.pkl', 'wb') as fh:
+        with open(t_file, 'wb') as fh:
             pickle.dump(t_list_tuple, fh)
         exit()
     else:
         # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
         # t = compute_t(x_train, y_train)
-        with open("t.pkl", "rb") as fh:
+        with open(t_file, "rb") as fh:
             t_list_tuple = pickle.load(fh)
 
     validation = normalize_validation(validation)
@@ -212,12 +190,11 @@ def manual_inference(t_hat):
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, validation, test = split_ratings(ratings, 6, 8)
-    x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
+    # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
-    u = np.concatenate((x_train, 0.2 * y_train), axis=1)
-    all_scores = np.dot(u, t_hat)  # [6041, 3953]
+
     # all_scores intersect with o_test
-    all_scores_norm = (all_scores - np.min(all_scores)) / (np.max(all_scores) - np.min(all_scores))
+    all_scores_norm = (t_hat - np.min(t_hat)) / (np.max(t_hat) - np.min(t_hat))
     y_scores = all_scores_norm[o_test > 0]
     y_true = x_test[o_test > 0]
     auc_score = roc_auc_score(y_true, y_scores)
@@ -250,7 +227,6 @@ def spark_matrix_completion(model, t_shape, rank):
     """
     complete the usr, item matrices with 0s
     :param model:
-    :param data:
     :param t_shape:
     :return: completed usr, item matrices
     """
@@ -265,6 +241,7 @@ def spark_matrix_completion(model, t_shape, rank):
         item_complete_matrix[row[0]] = np.array(row[1])
 
     t_hat = np.dot(user_complete_matrix, item_complete_matrix.T)
+    t_hat = t_hat[:int(t_shape[0] / 2), :]
     return t_hat
 
 
@@ -297,7 +274,7 @@ def main():
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
 
         model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
-        t_hat = spark_matrix_completion(model, (7906, 3953), rank)
+        t_hat = spark_matrix_completion(model, (12082, 3953), rank)
         validation_auc = manual_inference(t_hat)
         # validation_auc = spark_inference(model, validation_rdd)
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "

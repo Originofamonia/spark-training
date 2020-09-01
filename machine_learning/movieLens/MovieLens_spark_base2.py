@@ -3,7 +3,7 @@
 """
 use numpy to process matrices
     1. use sklearn's MF (done)
-    2. stuck at line 195: model = ALS.train(t_rdd, rank, numIter, lmbda)
+    2. spark ALS(x) is equivalent to HCF (separate unobserved and negative data)
 """
 import itertools
 import os
@@ -16,9 +16,11 @@ import numpy as np
 import tqdm
 from sklearn.metrics import roc_auc_score, precision_recall_curve
 from pyspark.mllib.evaluation import BinaryClassificationMetrics
-from pyspark.mllib.recommendation import ALS, Rating, MatrixFactorizationModel
+from pyspark.mllib.recommendation import ALS, Rating
 from pyspark.sql import SparkSession
 from scipy.sparse import coo_matrix
+
+# from machine_learning.movieLens.MovieLens_spark_hcf import
 
 
 def parse_rating(line):
@@ -114,7 +116,7 @@ def split_ratings(ratings, b1, b2):
     return training, validation, test
 
 
-def parse_t(t):
+def parse_s(t):
     """
     convert sparse matrix (2d) to list of tuple (i, j, value)
     :return:
@@ -122,9 +124,9 @@ def parse_t(t):
     t_list_tuple = []
     for i in tqdm.tqdm(range(t.shape[0])):
         for j in range(t.shape[1]):
-            if t[i][j] > 1e-6:
+            if t[i][j] > 1e-1:
                 t_list_tuple.append((i, j, t[i][j]))
-    #
+
     # sparse_t = csr_matrix(t, dtype=float).tocoo()  # used for spark
     # a = np.unique(sparse_t.data, return_counts=True)
     # mat = np.vstack((sparse_t.row, sparse_t.col, sparse_t.data)).T  # has data == 0
@@ -132,31 +134,15 @@ def parse_t(t):
     return t_list_tuple
 
 
-def sigmoid(x):
-    z = 1 / (1 + np.exp(-x))
-    return z
+def normalize_t(t):
+    t[:, 2] = t[:, 2] / 5
 
-
-def compute_t(x_train, y_train):
-    t1 = np.dot(x_train.T, x_train)
-    mask1 = t1 > 0
-    t1_norm = (t1 - np.min(t1[mask1])) / (np.max(t1[mask1]) - np.min(t1[mask1]))  # only normalize t1 > 0
-    t1_norm = t1_norm * mask1
-    t1_norm[t1_norm < 1e-1] = 0
-
-    t2 = np.dot(y_train.T, x_train)
-    mask2 = t2 > 0
-    t2_norm = (t2 - np.min(t2[mask2])) / (np.max(t2[mask2]) - np.min(t2[mask2]))  # only normalize t2 > 0
-    t2_norm = t2_norm * mask2
-    t2_norm[t2_norm < 1e-1] = 0
-    t_norm = np.concatenate((t1_norm, t2_norm), axis=0)  # [7906, 3953]
+    mask = t > 0
+    t_norm = (t - np.min(t[mask])) / (np.max(t[mask]) - np.min(t[mask]))  # only normalize t > 0
+    t_norm = t_norm * mask
+    t_norm[t_norm < 2e-1] = 0
 
     return t_norm
-
-
-def normalize_validation(validation):
-    validation[:, 2] = validation[:, 2] / 5
-    return validation
 
 
 def generate_xoy(coo_mat, rating_shape):
@@ -181,49 +167,68 @@ def generate_xoy_binary(coo_mat, rating_shape):
 
 def get_list_tuples():
     # load personal ratings
-    movie_lens_home_dir = '../../data/movielens/medium/'
+    t_file = 'hcf3.pkl'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, validation, test = split_ratings(ratings, 6, 8)  # (i, j, value)
-    if not os.path.isfile('t.pkl'):
+    if not os.path.isfile(t_file):
         x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
-        t = compute_t(x_train, y_train)
+
+        x = normalize_t(x_train)
 
         # train models and evaluate them on the validation set
-        t_list_tuple = parse_t(t)
-        with open('t.pkl', 'wb') as fh:
-            pickle.dump(t_list_tuple, fh)
+        s_list_tuple = parse_s(x)
+        with open(t_file, 'wb') as fh:
+            pickle.dump(s_list_tuple, fh)
         exit()
     else:
-        # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
-        # t = compute_t(x_train, y_train)
-        with open("t.pkl", "rb") as fh:
-            t_list_tuple = pickle.load(fh)
+        with open(t_file, "rb") as fh:
+            s_list_tuple = pickle.load(fh)
 
-    validation = normalize_validation(validation)
-    test = normalize_validation(test)
+    validation = normalize_t(validation)
+    test = normalize_t(test)
 
     validation_list_tuple = list(map(tuple, validation))  # i, j, value
     test_list_tuple = list(map(tuple, test))
-    return t_list_tuple, validation_list_tuple, test_list_tuple
+    return s_list_tuple, validation_list_tuple, test_list_tuple
 
 
-def manual_inference(t_hat):
+def manual_inference(x_hat):
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, validation, test = split_ratings(ratings, 6, 8)
-    x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
+    # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
-    u = np.concatenate((x_train, 0.2 * y_train), axis=1)
-    all_scores = np.dot(u, t_hat)  # [6041, 3953]
+
     # all_scores intersect with o_test
-    all_scores_norm = (all_scores - np.min(all_scores)) / (np.max(all_scores) - np.min(all_scores))
+    all_scores_norm = (x_hat - np.min(x_hat)) / (np.max(x_hat) - np.min(x_hat))
     y_scores = all_scores_norm[o_test > 0]
     y_true = x_test[o_test > 0]
     auc_score = roc_auc_score(y_true, y_scores)
     # precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
     # np.save(pr_curve_filename, (precision, recall, thresholds))
     return auc_score
+
+
+def spark_matrix_completion(model, t_shape, rank):
+    """
+    complete the usr, item matrices with 0s
+    :param model:
+    :param t_shape:
+    :return: completed usr, item matrices
+    """
+    user_matrix = model.userFeatures().collect()
+    item_matrix = model.productFeatures().collect()
+    user_complete_matrix = np.zeros((t_shape[0], rank))
+    item_complete_matrix = np.zeros((t_shape[1], rank))
+    for row in user_matrix:
+        user_complete_matrix[row[0]] = np.array(row[1])
+
+    for row in item_matrix:
+        item_complete_matrix[row[0]] = np.array(row[1])
+
+    t_hat = np.dot(user_complete_matrix, item_complete_matrix.T)
+    return t_hat
 
 
 def spark_inference(model, data):
@@ -246,35 +251,13 @@ def spark_inference(model, data):
     return metrics.areaUnderROC
 
 
-def spark_matrix_completion(model, t_shape, rank):
-    """
-    complete the usr, item matrices with 0s
-    :param model:
-    :param data:
-    :param t_shape:
-    :return: completed usr, item matrices
-    """
-    user_matrix = model.userFeatures().collect()
-    item_matrix = model.productFeatures().collect()
-    user_complete_matrix = np.zeros((t_shape[0], rank))
-    item_complete_matrix = np.zeros((t_shape[1], rank))
-    for row in user_matrix:
-        user_complete_matrix[row[0]] = np.array(row[1])
-
-    for row in item_matrix:
-        item_complete_matrix[row[0]] = np.array(row[1])
-
-    t_hat = np.dot(user_complete_matrix, item_complete_matrix.T)
-    return t_hat
-
-
 def main():
     t_list_tuple, validation_list_tuple, test_list_tuple = get_list_tuples()
     # set up environment
     spark = SparkSession.builder \
         .master('local[*]') \
-        .config("spark.driver.memory", "7g") \
-        .getOrCreate()  # solve the ParallelRDD issue
+        .config("spark.driver.memory", "5g") \
+        .getOrCreate()
     sc = spark.sparkContext
 
     num_partitions = 2
@@ -297,7 +280,7 @@ def main():
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
 
         model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
-        t_hat = spark_matrix_completion(model, (7906, 3953), rank)
+        t_hat = spark_matrix_completion(model, (6041, 3953), rank)
         validation_auc = manual_inference(t_hat)
         # validation_auc = spark_inference(model, validation_rdd)
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "
