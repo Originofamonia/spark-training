@@ -8,7 +8,12 @@ use numpy to process matrices
 import sys
 import os
 import itertools
+from tqdm import tqdm
+import random
+import pickle
 import torch
+import torch.nn.functional as F
+from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 # from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.decomposition import NMF
@@ -28,8 +33,22 @@ root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
 add_path(root_path)
 
 
-from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary, split_ratings,\
+from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
     compute_t, sigmoid, load_ratings
+
+
+def split_ratings(ratings, b1):
+    """
+    :param ratings: matrix, row is (i, j, value, timestamp)
+    :param b1: boundary1: between training and validation
+    :return: training, test: [i, j, rating]
+    """
+    training = np.array([row for row in ratings if row[3] % 10 < b1])  # [0, 5]
+    test = np.array([row for row in ratings if b1 <= row[3] % 10])  # [8, 9]
+    training = np.delete(training, 3, 1)
+    test = np.delete(test, 3, 1)
+
+    return training, test
 
 
 def mf_sklearn(t, n_components, n_iter):
@@ -42,7 +61,21 @@ def mf_sklearn(t, n_components, n_iter):
     return t_hat
 
 
-def get_u_w(x, y, t, n_components, n_iter):
+def dense_to_sparse(o):
+    """
+    convert dense matrix (2d) to sparse list of tuple (i, j, value)
+    :return:
+    """
+    o_list_tuple = []
+    for i in tqdm(range(o.shape[0])):
+        for j in range(o.shape[1]):
+            if o[i][j] > 1e-1:
+                o_list_tuple.append((i, j, o[i][j]))
+
+    return o_list_tuple
+
+
+def get_u_v_label(x, o, y, t, n_components, n_iter):
     split = int(len(t) / 2)
 
     t1 = t[: split]  # x.T * x
@@ -55,8 +88,48 @@ def get_u_w(x, y, t, n_components, n_iter):
 
     pos_u = np.dot(x, p)
     neg_u = np.dot(y, r)
-    w = np.dot(s, q.T)
-    return w, pos_u, neg_u
+    u = np.concatenate((pos_u, neg_u), axis=1)  # [6041, 32]
+    v = np.concatenate((q, s), axis=0).T  # [3953, 32]
+    o_list = dense_to_sparse(o)
+
+    np.save('uv_16.npy', (u, v, x, o_list, y))
+    return u, v
+
+
+def build_dataset(uv_file):
+    u, v, x, o_list, y = np.load(uv_file, allow_pickle=True)
+    samples = o_list[np.random.choice(len(o_list), size=5, replace=False)]  # sample from o_list
+    u_sample = u[samples[:, 0]]
+    v_sample = v[:, samples[:, 1]]
+    x_sample = x[samples[:, 0], samples[:, 1]]
+    y_sample = y[samples[:, 0], samples[:, 1]]
+    print(y_sample)
+
+
+def hcf_nn_inference(net, uv_file, device):
+    net.eval()
+    u, v, x, _, y = np.load(uv_file, allow_pickle=True)
+    path = '../../data/movielens/medium/ratings.dat'
+    ratings = load_ratings(path)
+    training, test = split_ratings(ratings, 8)
+    x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
+    # o_list = dense_to_sparse(o_test)
+    # np.save('test_o_list.npy', o_list)
+    o_list = np.load('test_o_list.npy')
+    y_true = x_test[o_test > 0]
+    y_hat = np.zeros(y_true.shape)
+    for i, row in enumerate(o_list):
+        i_index = int(row[0])
+        j_index = int(row[1])
+        u_vec = torch.from_numpy(u[i_index]).unsqueeze(0).to(device)
+        v_vec = torch.from_numpy(v[j_index]).unsqueeze(0).to(device)
+
+        rating_hat = net(u_vec, v_vec)
+        y_hat[i] = rating_hat.squeeze(0).cpu().detach().numpy()[0]
+
+    auc_score = roc_auc_score(y_true, y_hat)
+    precision, recall, thresholds = precision_recall_curve(y_true, y_hat)
+    return auc_score
 
 
 def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
@@ -81,48 +154,46 @@ def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
 
 
 def main():
+    rank = 25
+    num_iter = 2000
+    # path = '../../data/movielens/medium/ratings.dat'
+    # ratings = load_ratings(path)
+    # training, test = split_ratings(ratings, 8)
+    # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
+    # t = compute_t(x_train, y_train)
+    # u, v = get_u_v_label(x_train, o_train, y_train, t, rank, num_iter)
+    uv_file = 'uv_25.npy'
+    u, v, x, o_list, y = np.load(uv_file, allow_pickle=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    batch_size = 20
-    num_epochs = 10
+    batch_size = 50
     lr = 1e-3
 
-    movie_lens_home_dir = '../../data/movielens/medium/'
-    pr_curve_filename = 'movieLen_base2.npy'
-    path = '../../data/movielens/medium/ratings.dat'
-    ratings = load_ratings(path)
-    training, validation, test = split_ratings(ratings, 6, 8)
-
-    x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
-    # x_train, o_train, y_train = generate_xoy_binary(training)
-
-    t = compute_t(x_train, y_train)
-
-    ranks = [16, 25]
-    num_iters = [50, 80]
-    best_t = None
-    best_validation_auc = float("-inf")
-    best_rank = 0
-
-    best_num_iter = -1
-    net = Hcf().to(device)
+    net = Hcf(in_feature=rank*2).to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     net.train()
 
-    for rank, num_iter in itertools.product(ranks, num_iters):
-        w, pos_u, neg_u = get_u_w(x_train, y_train, t, rank, num_iter)
+    for i in range(num_iter):
+        # sample_index = o_list[np.random.choice(len(o_list), size=batch_size, replace=False)]
+        sample_index = random.sample(o_list, batch_size)
+        i_index = [x[0] for x in sample_index]
+        j_index = [x[1] for x in sample_index]
+        u_sample = torch.from_numpy(u[i_index]).to(device)
+        v_sample = torch.from_numpy(v[j_index]).to(device)
+        x_sample = x[i_index, j_index]
+        y_sample = y[i_index, j_index]
+        label = torch.from_numpy(np.array((x_sample, y_sample)).T).to(device)
+        optimizer.zero_grad()
 
-        print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
-              "validation set is {}.".format(rank, num_iter, valid_auc))
-        if valid_auc > best_validation_auc:
-            best_t = t_hat
-            best_validation_auc = valid_auc
-            best_rank = rank
-            best_num_iter = num_iter
+        rating_hat = net(u_sample, v_sample)
+        loss = F.mse_loss(rating_hat, label)
+        loss.backward()
+        optimizer.step()
 
-    test_auc = hcf_inference(best_t, training, test, (6041, 3953), pr_curve_filename)
-    print("The best model was trained with rank = {}, and num_iter = {}, and its AUC on the "
-          "test set is {}.".format(best_rank, best_num_iter, test_auc))
+    auc_score = hcf_nn_inference(net, uv_file, device)
+    print('auc score: {}'.format(auc_score))
 
 
 if __name__ == "__main__":
     main()
+    # uv_file = 'uv_16.npy'
+    # build_dataset(uv_file)

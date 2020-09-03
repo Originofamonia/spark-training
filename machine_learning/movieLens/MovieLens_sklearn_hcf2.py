@@ -77,10 +77,7 @@ def main():
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)
     training, validation, test = split_ratings(ratings, 6, 8)
-
     x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
-    # x_train, o_train, y_train = generate_xoy_binary(training)
-
     t = compute_t(x_train, y_train)
 
     ranks = [8, 12]

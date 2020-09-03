@@ -166,6 +166,9 @@ def generate_xoy(coo_mat, rating_shape):
     """
     mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
     x, o, y = parse_xoy(mat, mat.shape[0], mat.shape[1])
+    x = x.astype(np.float32)
+    o = o.astype(np.float32)
+    y = y.astype(np.float32)
     return x, o, y
 
 
