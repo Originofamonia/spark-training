@@ -5,7 +5,7 @@ import torch.nn as nn
 
 
 class Hcf(nn.Module):
-    # input is (u+, u-, v+, v-) all are vectors, output is P(i, j)
+    # input is (u+, u-, v+, v-) all are vectors; output is P(i, j), P(i, j) has two values, pos rating, neg rating
     def __init__(self, in_feature=32, hidden_feature=128):
         super(Hcf, self).__init__()
         self.in_feature = in_feature
@@ -24,6 +24,7 @@ class Hcf(nn.Module):
         self.b2 = nn.BatchNorm1d(self.hidden_feature)
 
     def forward(self, u, v):
+        # u is concat(u+, u-), v is concat(v+, v-)
         u1 = F.relu(self.b1(self.fc_u1(u)))
         u1 = F.relu(self.b1(self.fc_u2(u1)))
         v1 = F.relu(self.b2(self.fc_v1(v)))

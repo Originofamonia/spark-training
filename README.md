@@ -33,6 +33,10 @@ Change training data between continuous rating and binary rating [0, 1]: in `mai
 HCF beta * Y: same as above
 
 
+### hcf_nn
+hcf_nn is in `machine_learning/movieLens/MovieLens_sklearn_hcf_nn.py` and `hcf_nn.py`.
+
+
 ## Progress
 MovieLens is done.
 
