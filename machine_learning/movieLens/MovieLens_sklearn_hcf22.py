@@ -3,7 +3,8 @@
 """
 use numpy to process matrices
     1. use sklearn's MF (done)
-    2. T = concat(X, Y), evaluate on left half of T* only
+    2. T = concat(X, Y*Y.T*X)
+    3. R* = X* + 2 * (Y*Y.T*X)
 """
 import sys
 import os
@@ -13,8 +14,6 @@ import numpy as np
 # from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.decomposition import NMF
 from sklearn.metrics import roc_auc_score, precision_recall_curve
-# from operator import add
-# from os.path import join, isfile, dirname
 
 
 def add_path(path):
@@ -27,8 +26,8 @@ abs_current_path = os.path.realpath('./')
 root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
 add_path(root_path)
 
-
-from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary, split_ratings,\
+from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings
+from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
     sigmoid, load_ratings
 
 
@@ -43,25 +42,40 @@ def mf_sklearn(t, n_components, n_iter):
 
 
 def compute_t(x_train, y_train):
-    t = np.concatenate((x_train, y_train), axis=0)
+    mask1 = x_train > 0
+    t1_norm = (x_train - np.min(x_train[mask1])) / (np.max(x_train[mask1]) - np.min(x_train[mask1]))
+    t1_norm = t1_norm * mask1
 
-    mask = t > 0
-    t_norm = (t - np.min(t[mask])) / (np.max(t[mask]) - np.min(t[mask]))  # only normalize t > 0
-    t_norm = t_norm * mask
-    t_norm[t_norm < 2e-1] = 0
+    t2 = np.dot(y_train, np.dot(y_train.T, x_train))
+    mask2 = t2 > 0
+    t2_norm = (t2 - np.min(t2[mask2])) / (np.max(t2[mask2]) - np.min(t2[mask2]))  # only normalize t > 0
+    t2_norm = t2_norm * mask2
+    t2_norm[t2_norm < 2e-1] = 0
 
-    return t_norm
+    t = np.concatenate((t1_norm, t2_norm), axis=0)
+
+    return t  # [12082, 3953]
 
 
 def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
     """
     sklearn version AUROC
     """
-    t_hat = t_hat[:int(t_hat.shape[0] / 2), :]
+    t1_hat = t_hat[:int(t_hat.shape[0] / 2), :]
+    t2_hat = t_hat[int(t_hat.shape[0] / 2):, :]
+    mask1 = t1_hat > 0
+    t1_hat_norm = (t1_hat - np.min(t1_hat[mask1])) / (np.max(t1_hat[mask1]) - np.min(t1_hat[mask1]))
+    t1_hat_norm *= mask1
+
+    mask2 = t2_hat > 0
+    t2_hat_norm = (t2_hat - np.min(t2_hat[mask2])) / (np.max(t2_hat[mask2]) - np.min(t2_hat[mask2]))
+    t2_hat_norm *= mask2
+
+    r_hat = t1_hat_norm + 0.5 * t2_hat_norm
     x_test, o_test, y_test = generate_xoy_binary(test, rating_shape)
 
     # all_scores intersect with o_test
-    all_scores_norm = (t_hat - np.min(t_hat)) / (np.max(t_hat) - np.min(t_hat))
+    all_scores_norm = (r_hat - np.min(r_hat)) / (np.max(r_hat) - np.min(r_hat))
 
     y_scores = all_scores_norm[o_test > 0]
     y_true = x_test[o_test > 0]
@@ -73,10 +87,10 @@ def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
 
 def main():
     # load personal ratings
-    pr_curve_filename = 'movieLen_base2.npy'
+    pr_curve_filename = 'movieLen_hcf22.npy'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)
-    training, validation, test = split_ratings(ratings, 6, 8)
+    training, test = split_ratings(ratings, 8)
     x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     t = compute_t(x_train, y_train)
 
@@ -89,9 +103,9 @@ def main():
     best_num_iter = -1
 
     for rank, num_iter in itertools.product(ranks, num_iters):
-        t_hat = mf_sklearn(t, n_components=rank, n_iter=200)
+        t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)
 
-        valid_auc = hcf_inference(t_hat, training, validation, (6041, 3953), pr_curve_filename)
+        valid_auc = hcf_inference(t_hat, training, test, (6041, 3953), pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:

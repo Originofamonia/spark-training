@@ -3,7 +3,7 @@
 """
 use numpy to process matrices
     1. use sklearn's MF (done)
-    2. T = concat(X, Y), evaluate on left half of T* only
+    2. T = hcat(X, Y*Y.T*X)
 """
 import itertools
 import os
@@ -120,14 +120,19 @@ def sigmoid(x):
 
 
 def compute_t(x_train, y_train):
+    mask1 = x_train > 0
+    t1_norm = (x_train - np.min(x_train[mask1])) / (np.max(x_train[mask1]) - np.min(x_train[mask1]))
+    t1_norm = t1_norm * mask1
 
-    t = np.concatenate((x_train, y_train), axis=1)
-    mask = t > 0
-    t_norm = (t - np.min(t[mask])) / (np.max(t[mask]) - np.min(t[mask]))  # only normalize t > 0
-    t_norm = t_norm * mask
-    t_norm[t_norm < 2e-1] = 0
+    t2 = np.dot(y_train, np.dot(y_train.T, x_train))
+    mask2 = t2 > 0
+    t2_norm = (t2 - np.min(t2[mask2])) / (np.max(t2[mask2]) - np.min(t2[mask2]))  # only normalize t > 0
+    t2_norm = t2_norm * mask2
+    t2_norm[t2_norm < 2e-1] = 0
 
-    return t_norm
+    t = np.concatenate((t1_norm, t2_norm), axis=1)
+
+    return t  # [6041, 7906]
 
 
 def normalize_validation(validation):
@@ -157,7 +162,7 @@ def generate_xoy_binary(coo_mat, rating_shape):
 
 def get_list_tuples():
     # load personal ratings
-    t_file = 't4.pkl'
+    t_file = 'hcf2.pkl'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
     training, test = split_ratings(ratings, 8)  # (i, j, value)
@@ -177,7 +182,6 @@ def get_list_tuples():
             t_list_tuple = pickle.load(fh)
 
     test = normalize_validation(test)
-
     test_list_tuple = list(map(tuple, test))  # i, j, value
     return t_list_tuple, test_list_tuple
 
@@ -189,12 +193,18 @@ def manual_inference(t_hat):
     # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
 
-    t1_hat = t_hat[:, :int(t_hat.shape[1]/2)]
-    t2_hat = t_hat[:, int(t_hat.shape[1]/2):]
-    r_hat = t1_hat - 0 * t2_hat
-    # all_scores intersect with o_test
-    all_scores_norm = (r_hat - np.min(r_hat)) / (np.max(r_hat) - np.min(r_hat))
-    y_scores = all_scores_norm[o_test > 0]
+    t1_hat = t_hat[:, :int(t_hat.shape[1] / 2)]
+    t2_hat = t_hat[:, int(t_hat.shape[1] / 2):]
+    mask1 = t1_hat > 0
+    t1_hat_norm = (t1_hat - np.min(t1_hat[mask1])) / (np.max(t1_hat[mask1]) - np.min(t1_hat[mask1]))
+    t1_hat_norm *= mask1
+
+    mask2 = t2_hat > 0
+    t2_hat_norm = (t2_hat - np.min(t2_hat[mask2])) / (np.max(t2_hat[mask2]) - np.min(t2_hat[mask2]))
+    t2_hat_norm *= mask2
+
+    r_hat = t1_hat_norm + 0.5 * t2_hat_norm
+    y_scores = r_hat[o_test > 0]
     y_true = x_test[o_test > 0]
     auc_score = roc_auc_score(y_true, y_scores)
     # precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
@@ -273,7 +283,7 @@ def main():
         model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
         t_hat = spark_matrix_completion(model, (6041, 7906), rank)
         validation_auc = manual_inference(t_hat)
-        # validation_auc = spark_inference(model, validation_rdd)
+
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "
               "validation set is {}.".format(rank, lmbda, numIter, validation_auc))
         if validation_auc > best_validation_auc:
