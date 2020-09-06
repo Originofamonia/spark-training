@@ -6,13 +6,13 @@
 """
 import sys
 import itertools
+from itertools import combinations
 import os
 import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.decomposition import NMF
 from sklearn.metrics import roc_auc_score, precision_recall_curve, roc_curve
 import matplotlib.pyplot as plt
-# from os.path import join, isfile, dirname
 
 
 def add_path(path):
@@ -27,16 +27,36 @@ lib_dir = os.path.join(root_path, 'lib')
 add_path(root_path)
 
 
-from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary, split_ratings,\
-    compute_t, sigmoid, load_ratings
-from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn
+from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
+    sigmoid, load_ratings
+from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, split_ratings
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity
 
 
 def normalize_s(x_train):
+    s_norm = (x_train - np.min(x_train)) / (np.max(x_train) - np.min(x_train))
+    return s_norm
 
-    s_norm = (x_train - np.mean(x_train)) / np.std(x_train)
-    s = sigmoid(s_norm)
-    return s
+
+# def diversity(r_hat):
+#     sim_matrix = np.dot(r_hat.T, r_hat)
+#     sim_matrix = (sim_matrix - np.min(sim_matrix)) / (np.max(sim_matrix) - np.min(sim_matrix))
+#     div_matrix = 1 - sim_matrix
+#
+#     k = 10
+#     diversity_list = []
+#     for i, row in enumerate(r_hat):
+#         topk_indices = row.argsort()[-k:][::-1]
+#         comb = np.array(list(combinations(topk_indices, 2)))
+#         topk_diversity = div_matrix[comb[:, 0], comb[:, 1]]
+#         diversity_list.append(np.sum(topk_diversity) / comb.shape[0])
+#
+#     diversity_score = sum(diversity_list) / r_hat.shape[0]
+#
+#     plt.hist(sorted(diversity_list, reverse=True), bins=50, color=np.random.rand(1, 3))
+#     plt.grid()
+#     plt.show()
+#     return diversity_score
 
 
 def baseline2_inference(s_hat, test, rating_sahpe, pr_curve_filename):
@@ -52,10 +72,10 @@ def baseline2_inference(s_hat, test, rating_sahpe, pr_curve_filename):
     y_true = x_test[o_test > 0]  # [0, 1]
     a = len(np.unique(y_true))
     auc_score = roc_auc_score(y_true, y_scores)
-    for i in range(len(np.unique(y_true))):
-        pass
-    precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
-    np.save(pr_curve_filename, (precision, recall, thresholds))
+    # for i in range(len(np.unique(y_true))):
+    #     pass
+    # precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
+    # np.save(pr_curve_filename, (precision, recall, thresholds))
     return auc_score
 
 
@@ -83,7 +103,7 @@ def main():
     movie_lens_home_dir = '../../data/movielens/medium/'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)
-    training, validation, test = split_ratings(ratings, 6, 8)
+    training, test = split_ratings(ratings, 8)
 
     x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
 
@@ -99,7 +119,8 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         s_hat = mf_sklearn(s, n_components=rank, n_iter=num_iter)  # [0, 23447]
-        valid_auc = baseline2_inference(s_hat, validation, (6041, 3953), pr_curve_filename)
+        diversity_score = diversity(np.dot(s_hat.T, s_hat), s_hat)
+        valid_auc = baseline2_inference(s_hat, test, (6041, 3953), pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:

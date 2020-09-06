@@ -142,13 +142,13 @@ def compute_t(x_train, y_train):
     mask1 = t1 > 0
     t1_norm = (t1 - np.min(t1[mask1])) / (np.max(t1[mask1]) - np.min(t1[mask1]))  # only normalize t1 > 0
     t1_norm = t1_norm * mask1
-    t1_norm[t1_norm < 1e-1] = 0
+    # t1_norm[t1_norm < 1e-1] = 0
 
     t2 = np.dot(y_train.T, x_train)
     mask2 = t2 > 0
     t2_norm = (t2 - np.min(t2[mask2])) / (np.max(t2[mask2]) - np.min(t2[mask2]))  # only normalize t2 > 0
     t2_norm = t2_norm * mask2
-    t2_norm[t2_norm < 1e-1] = 0
+    # t2_norm[t2_norm < 1e-1] = 0
     t_norm = np.concatenate((t1_norm, t2_norm), axis=0)  # [7906, 3953]
 
     return t_norm
@@ -203,7 +203,6 @@ def get_list_tuples():
         with open("t.pkl", "rb") as fh:
             t_list_tuple = pickle.load(fh)
 
-    validation = normalize_validation(validation)
     test = normalize_validation(test)
 
     validation_list_tuple = list(map(tuple, validation))  # i, j, value

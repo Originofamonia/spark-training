@@ -130,7 +130,7 @@ def compute_t(x_train, y_train):
     t2_norm = t2_norm * mask2
     t2_norm[t2_norm < 2e-1] = 0
 
-    t = np.concatenate((t1_norm, t2_norm), axis=1)
+    t = np.concatenate((t1_norm, t2_norm), axis=1)  # hcat
 
     return t  # [6041, 7906]
 
