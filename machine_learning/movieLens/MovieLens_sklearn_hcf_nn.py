@@ -33,8 +33,7 @@ root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
 add_path(root_path)
 
 
-from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
-    compute_t, sigmoid, load_ratings
+from machine_learning.movieLens.utils import generate_xoy, generate_xoy_binary, load_ratings
 
 
 def split_ratings(ratings, b1):
@@ -45,6 +44,22 @@ def split_ratings(ratings, b1):
     """
     training = np.array([row for row in ratings if row[3] % 10 < b1])  # [0, 5]
     test = np.array([row for row in ratings if b1 <= row[3] % 10])  # [8, 9]
+    training = np.delete(training, 3, 1)
+    test = np.delete(test, 3, 1)
+
+    return training, test
+
+
+def split_ratings_by_time(ratings, b1):
+    """
+    :param ratings: matrix, row is (i, j, value, timestamp)
+    :param b1: boundary1: between training and validation
+    :return: training, test: [i, j, rating]
+    """
+    time_order = ratings[:, 3].argsort()
+    new_ratings = ratings[time_order]
+    training = new_ratings[:int(new_ratings.shape[0] * b1)]
+    test = new_ratings[int(new_ratings.shape[0] * b1):]
     training = np.delete(training, 3, 1)
     test = np.delete(test, 3, 1)
 
@@ -143,9 +158,9 @@ def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
     u = np.concatenate((x_train, 0.2 * y_train), axis=1)
     all_scores = np.dot(u, t_hat)  # [6041, 3953]
     # all_scores intersect with o_test
-    all_scores_norm = (all_scores - np.mean(all_scores)) / np.std(all_scores)
-    all_scores = sigmoid(all_scores_norm)
-    y_scores = all_scores[o_test > 0]
+    all_scores_norm = (all_scores - np.min(all_scores)) / (np.max(all_scores) - np.min(all_scores))
+
+    y_scores = all_scores_norm[o_test > 0]
     y_true = x_test[o_test > 0]
     auc_score = roc_auc_score(y_true, y_scores)
     precision, recall, thresholds = precision_recall_curve(y_true, y_scores)

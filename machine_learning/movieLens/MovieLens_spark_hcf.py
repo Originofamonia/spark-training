@@ -14,53 +14,26 @@ from os.path import isfile
 
 import numpy as np
 import tqdm
-from sklearn.metrics import roc_auc_score, precision_recall_curve
+from sklearn.metrics import roc_auc_score, precision_recall_curve, plot_precision_recall_curve
 from pyspark.mllib.evaluation import BinaryClassificationMetrics
 from pyspark.mllib.recommendation import ALS, Rating, MatrixFactorizationModel
 from pyspark.sql import SparkSession
-from scipy.sparse import coo_matrix
+import matplotlib.pyplot as plt
 
 
-def parse_rating(line):
-    """
-    Parses a rating record in MovieLens format userId::movieId::rating::timestamp .
-    """
-    fields = line.strip().split("::")
-    return int(fields[3]) % 10, (int(fields[0]), int(fields[1]), float(fields[2]))
+def add_path(path):
+    if path not in sys.path:
+        print('Adding {}'.format(path))
+        sys.path.append(path)
 
 
-def parse_movie(line):
-    """
-    Parses a movie record in MovieLens format movieId::movieTitle .
-    """
-    fields = line.strip().split("::")
-    return int(fields[0]), fields[1]
+abs_current_path = os.path.realpath('./')
+root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
+add_path(root_path)
 
-
-def parse_xoy(mat, n_users, n_items):
-    """
-    Parses a sparse matrix to x, o, y
-    :return:
-    """
-    o = np.clip(mat, 0, 1)  # O
-    # x = (mat >= 3) * np.ones((n_users, n_items))  # X, split [0, 1, 2] -> 0, [3, 4, 5] -> 1
-    x = mat / 5
-    # y = o - x
-    y = (6 - mat) / 5  # Y
-    return x, o, y
-
-
-def parse_xoy_binary(mat, n_users, n_items):
-    """
-    Parses a sparse matrix to x, o, y
-    :return:
-    """
-    o = np.clip(mat, 0, 1)  # O
-    x = (mat >= 3) * np.ones((n_users, n_items))  # X, split [0, 1, 2] -> 0, [3, 4, 5] -> 1
-    # x = mat / 5
-    y = o - x
-    # y = (6 - mat) / 5  # Y
-    return x, o, y
+from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings_by_time
+from machine_learning.movieLens.utils import load_ratings, generate_xoy_binary, generate_xoy
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity_excludes_train
 
 
 def parse_o(line):
@@ -73,45 +46,6 @@ def parse_o(line):
         return int(line[1][0]), int(line[1][1]), 1
     else:
         return int(line[1][0]), int(line[1][1]), 0
-
-
-def load_ratings(ratings_file):
-    """
-    Load ratings from file into ndarray
-    return: ndarray, [i, j, rating, timestamp]
-    """
-    if not isfile(ratings_file):
-        print("File %s does not exist." % ratings_file)
-        sys.exit(1)
-    f = open(ratings_file, 'r')
-    ratings = np.loadtxt(ratings_file, dtype=int, delimiter='::')
-    f.close()
-    if not ratings.any():
-        print("No ratings provided.")
-        sys.exit(1)
-    else:
-        return ratings
-
-
-def split_ratings(ratings, b1, b2):
-    """
-    split ratings into train (60%), validation (20%), and test (20%) based on the
-    last digit of the timestamp, add my_ratings to train, and cache them
-    training, validation, test are all RDDs of (userId, movieId, rating)
-    split ratings into training, validation, test
-    :param ratings: matrix, row is (i, j, value, timestamp)
-    :param b1: boundary1: between training and validation
-    :param b2: boundary2: between validation and test
-    :return: training, validation, test: [i, j, rating]
-    """
-    training = np.array([row for row in ratings if row[3] % 10 < b1])  # [0, 5]
-    validation = np.array([row for row in ratings if b1 <= row[3] % 10 < b2])  # [6, 7]
-    test = np.array([row for row in ratings if b2 <= row[3] % 10])  # [8, 9]
-    training = np.delete(training, 3, 1)
-    validation = np.delete(validation, 3, 1)
-    test = np.delete(test, 3, 1)
-
-    return training, validation, test
 
 
 def parse_t(t):
@@ -159,61 +93,38 @@ def normalize_validation(validation):
     return validation
 
 
-def generate_xoy(coo_mat, rating_shape):
-    """
-    convert coordinate matrix [i, j, value] to sparse matrix (2d)
-    :return: sparse matrix (2d)
-    """
-    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
-    x, o, y = parse_xoy(mat, mat.shape[0], mat.shape[1])
-    x = x.astype(np.float32)
-    o = o.astype(np.float32)
-    y = y.astype(np.float32)
-    return x, o, y
-
-
-def generate_xoy_binary(coo_mat, rating_shape):
-    """
-    convert coordinate matrix [i, j, value] to sparse matrix (2d)
-    :return: sparse matrix (2d)
-    """
-    mat = coo_matrix((coo_mat[:, 2], (coo_mat[:, 0], coo_mat[:, 1])), shape=rating_shape).toarray()
-    x, o, y = parse_xoy_binary(mat, mat.shape[0], mat.shape[1])
-    return x, o, y
-
-
 def get_list_tuples():
     # load personal ratings
-    movie_lens_home_dir = '../../data/movielens/medium/'
+    pkl_file = 'hcf1.pkl'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-    training, validation, test = split_ratings(ratings, 6, 8)  # (i, j, value)
-    if not os.path.isfile('t.pkl'):
-        x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
+    training, test = split_ratings_by_time(ratings, 0.8)  # (i, j, value)
+    x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
+    if not os.path.isfile(pkl_file):
         t = compute_t(x_train, y_train)
 
         # train models and evaluate them on the validation set
         t_list_tuple = parse_t(t)
-        with open('t.pkl', 'wb') as fh:
+        with open(pkl_file, 'wb') as fh:
             pickle.dump(t_list_tuple, fh)
         exit()
     else:
         # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
         # t = compute_t(x_train, y_train)
-        with open("t.pkl", "rb") as fh:
+        with open(pkl_file, "rb") as fh:
             t_list_tuple = pickle.load(fh)
 
     test = normalize_validation(test)
 
-    validation_list_tuple = list(map(tuple, validation))  # i, j, value
+    # i, j, value
     test_list_tuple = list(map(tuple, test))
-    return t_list_tuple, validation_list_tuple, test_list_tuple
+    return t_list_tuple, test_list_tuple, o_train, x_train
 
 
 def manual_inference(t_hat):
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-    training, validation, test = split_ratings(ratings, 6, 8)
+    training, test = split_ratings_by_time(ratings, 0.8)
     x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
     u = np.concatenate((x_train, 0.2 * y_train), axis=1)
@@ -223,9 +134,13 @@ def manual_inference(t_hat):
     y_scores = all_scores_norm[o_test > 0]
     y_true = x_test[o_test > 0]
     auc_score = roc_auc_score(y_true, y_scores)
-    # precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
-    # np.save(pr_curve_filename, (precision, recall, thresholds))
-    return auc_score
+    precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
+    plt.plot(recall, precision)
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.grid()
+    plt.show()
+    return auc_score, all_scores_norm
 
 
 def spark_inference(model, data):
@@ -252,7 +167,6 @@ def spark_matrix_completion(model, t_shape, rank):
     """
     complete the usr, item matrices with 0s
     :param model:
-    :param data:
     :param t_shape:
     :return: completed usr, item matrices
     """
@@ -271,7 +185,7 @@ def spark_matrix_completion(model, t_shape, rank):
 
 
 def main():
-    t_list_tuple, validation_list_tuple, test_list_tuple = get_list_tuples()
+    t_list_tuple, test_list_tuple, o_train, x_train = get_list_tuples()
     # set up environment
     spark = SparkSession.builder \
         .master('local[*]') \
@@ -281,9 +195,6 @@ def main():
 
     num_partitions = 2
     t_rdd = sc.parallelize(t_list_tuple).filter(lambda x: x[2] > 0).repartition(num_partitions)
-    validation_rdd = sc.parallelize(validation_list_tuple)\
-        .map(lambda x: (x[0], x[1], float(x[2])))\
-        .repartition(num_partitions)
     test_rdd = sc.parallelize(test_list_tuple) \
         .map(lambda x: (x[0], x[1], float(x[2])))\
         .repartition(num_partitions)
@@ -300,8 +211,8 @@ def main():
 
         model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
         t_hat = spark_matrix_completion(model, (7906, 3953), rank)
-        validation_auc = manual_inference(t_hat)
-        # validation_auc = spark_inference(model, validation_rdd)
+        validation_auc, r_hat = manual_inference(t_hat)
+        div_score = diversity_excludes_train(t_hat, r_hat, o_train, x_train)
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "
               "validation set is {}.".format(rank, lmbda, numIter, validation_auc))
         if validation_auc > best_validation_auc:

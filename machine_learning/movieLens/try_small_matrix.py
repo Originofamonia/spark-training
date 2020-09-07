@@ -1,9 +1,10 @@
 import os
 import sys
+
 import numpy as np
 from pyspark import SparkConf, SparkContext
-from pyspark.sql import SparkSession
 from pyspark.mllib.recommendation import ALS
+from pyspark.sql import SparkSession
 
 
 def add_path(path):
@@ -18,7 +19,7 @@ lib_dir = os.path.join(root_path, 'lib')
 add_path(root_path)
 add_path(abs_current_path)
 
-# from machine_learning.movieLens.MovieLensALS import compute_rmse
+from machine_learning.movieLens.MovieLens_spark_base1 import spark_matrix_completion
 
 
 def small_matrix_sklearn():
@@ -57,5 +58,28 @@ def try_small_matrix_spark():
     print(pred)
 
 
+def try_spark_symetric_matrix():
+    spark = SparkSession.builder \
+        .master('local[*]') \
+        .config("spark.driver.memory", "7g") \
+        .getOrCreate()
+    sc = spark.sparkContext
+    rank = 2
+
+    list_tuple = [
+                  (0, 2, 5),
+
+                  (1, 1, 1),
+
+                  (2, 0, 5),
+                  ]
+
+    a_rdd = sc.parallelize(list_tuple).repartition(2)
+    model = ALS.train(a_rdd, rank, 20, nonnegative=True)
+    a_hat = spark_matrix_completion(model, (3, 3), rank)
+    print(a_hat)
+    print(np.linalg.matrix_rank(a_hat))
+
+
 if __name__ == '__main__':
-    try_small_matrix_spark()
+    try_spark_symetric_matrix()

@@ -23,14 +23,13 @@ def add_path(path):
 
 abs_current_path = os.path.realpath('./')
 root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
-lib_dir = os.path.join(root_path, 'lib')
 add_path(root_path)
 
 
 from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
     sigmoid, load_ratings
-from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, split_ratings
-from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity
+from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, split_ratings_by_time
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity, diversity_excludes_train
 
 
 def normalize_s(x_train):
@@ -103,7 +102,7 @@ def main():
     movie_lens_home_dir = '../../data/movielens/medium/'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)
-    training, test = split_ratings(ratings, 8)
+    training, test = split_ratings_by_time(ratings, 0.8)
 
     x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
 
@@ -119,7 +118,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         s_hat = mf_sklearn(s, n_components=rank, n_iter=num_iter)  # [0, 23447]
-        diversity_score = diversity(np.dot(s_hat.T, s_hat), s_hat)
+        diversity_score = diversity_excludes_train(np.dot(s_hat.T, s_hat), s_hat, o_train, x_train)
         valid_auc = baseline2_inference(s_hat, test, (6041, 3953), pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))

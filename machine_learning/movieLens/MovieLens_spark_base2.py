@@ -20,7 +20,18 @@ from pyspark.mllib.recommendation import ALS, Rating
 from pyspark.sql import SparkSession
 from scipy.sparse import coo_matrix
 
-# from machine_learning.movieLens.MovieLens_spark_hcf import
+
+def add_path(path):
+    if path not in sys.path:
+        print('Adding {}'.format(path))
+        sys.path.append(path)
+
+
+abs_current_path = os.path.realpath('./')
+root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
+add_path(root_path)
+
+from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings_by_time
 
 
 def parse_rating(line):
@@ -95,27 +106,6 @@ def load_ratings(ratings_file):
         return ratings
 
 
-def split_ratings(ratings, b1, b2):
-    """
-    split ratings into train (60%), validation (20%), and test (20%) based on the
-    last digit of the timestamp, add my_ratings to train, and cache them
-    training, validation, test are all RDDs of (userId, movieId, rating)
-    split ratings into training, validation, test
-    :param ratings: matrix, row is (i, j, value, timestamp)
-    :param b1: boundary1: between training and validation
-    :param b2: boundary2: between validation and test
-    :return: training, validation, test: [i, j, rating]
-    """
-    training = np.array([row for row in ratings if row[3] % 10 < b1])  # [0, 5]
-    validation = np.array([row for row in ratings if b1 <= row[3] % 10 < b2])  # [6, 7]
-    test = np.array([row for row in ratings if b2 <= row[3] % 10])  # [8, 9]
-    training = np.delete(training, 3, 1)
-    validation = np.delete(validation, 3, 1)
-    test = np.delete(test, 3, 1)
-
-    return training, validation, test
-
-
 def parse_s(t):
     """
     convert sparse matrix (2d) to list of tuple (i, j, value)
@@ -167,36 +157,35 @@ def generate_xoy_binary(coo_mat, rating_shape):
 
 def get_list_tuples():
     # load personal ratings
-    t_file = 'hcf3.pkl'
+    pkl_file = 'base2.pkl'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-    training, validation, test = split_ratings(ratings, 6, 8)  # (i, j, value)
-    if not os.path.isfile(t_file):
+    training, test = split_ratings_by_time(ratings, 0.8)  # (i, j, value)
+    if not os.path.isfile(pkl_file):
         x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
 
         x = normalize_t(x_train)
 
         # train models and evaluate them on the validation set
         s_list_tuple = parse_s(x)
-        with open(t_file, 'wb') as fh:
+        with open(pkl_file, 'wb') as fh:
             pickle.dump(s_list_tuple, fh)
         exit()
     else:
-        with open(t_file, "rb") as fh:
+        with open(pkl_file, "rb") as fh:
             s_list_tuple = pickle.load(fh)
 
-    validation = normalize_t(validation)
     test = normalize_t(test)
 
-    validation_list_tuple = list(map(tuple, validation))  # i, j, value
+    # i, j, value
     test_list_tuple = list(map(tuple, test))
-    return s_list_tuple, validation_list_tuple, test_list_tuple
+    return s_list_tuple, test_list_tuple
 
 
 def manual_inference(x_hat):
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-    training, validation, test = split_ratings(ratings, 6, 8)
+    training, test = split_ratings_by_time(ratings, 0.8)
     # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
 
@@ -252,7 +241,7 @@ def spark_inference(model, data):
 
 
 def main():
-    t_list_tuple, validation_list_tuple, test_list_tuple = get_list_tuples()
+    t_list_tuple, test_list_tuple = get_list_tuples()
     # set up environment
     spark = SparkSession.builder \
         .master('local[*]') \
@@ -262,9 +251,6 @@ def main():
 
     num_partitions = 2
     t_rdd = sc.parallelize(t_list_tuple).filter(lambda x: x[2] > 0).repartition(num_partitions)
-    validation_rdd = sc.parallelize(validation_list_tuple)\
-        .map(lambda x: (x[0], x[1], float(x[2])))\
-        .repartition(num_partitions)
     test_rdd = sc.parallelize(test_list_tuple) \
         .map(lambda x: (x[0], x[1], float(x[2])))\
         .repartition(num_partitions)
@@ -282,7 +268,7 @@ def main():
         model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
         t_hat = spark_matrix_completion(model, (6041, 3953), rank)
         validation_auc = manual_inference(t_hat)
-        # validation_auc = spark_inference(model, validation_rdd)
+        # validation_auc = spark_inference(model, test_rdd)
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "
               "validation set is {}.".format(rank, lmbda, numIter, validation_auc))
         if validation_auc > best_validation_auc:

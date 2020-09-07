@@ -21,6 +21,19 @@ from pyspark.sql import SparkSession
 from scipy.sparse import coo_matrix
 
 
+def add_path(path):
+    if path not in sys.path:
+        print('Adding {}'.format(path))
+        sys.path.append(path)
+
+
+abs_current_path = os.path.realpath('./')
+root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
+add_path(root_path)
+
+from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings_by_time
+
+
 def parse_xoy(mat, n_users, n_items):
     """
     Parses a sparse matrix to x, o, y
@@ -77,25 +90,6 @@ def load_ratings(ratings_file):
         return ratings
 
 
-def split_ratings(ratings, b1):
-    """
-    split ratings into train (60%), validation (20%), and test (20%) based on the
-    last digit of the timestamp, add my_ratings to train, and cache them
-    training, validation, test are all RDDs of (userId, movieId, rating)
-    split ratings into training, validation, test
-    :param ratings: matrix, row is (i, j, value, timestamp)
-    :param b1: boundary1: between training and validation
-    :param b2: boundary2: between validation and test
-    :return: training, validation, test: [i, j, rating]
-    """
-    training = np.array([row for row in ratings if row[3] % 10 < b1])  # [0, 5]
-    test = np.array([row for row in ratings if b1 <= row[3] % 10])  # [8, 9]
-    training = np.delete(training, 3, 1)
-    test = np.delete(test, 3, 1)
-
-    return training, test
-
-
 def parse_t(t):
     """
     convert sparse matrix (2d) to list of tuple (i, j, value)
@@ -130,7 +124,7 @@ def compute_t(x_train, y_train):
     t2_norm = t2_norm * mask2
     t2_norm[t2_norm < 2e-1] = 0
 
-    t = np.concatenate((t1_norm, t2_norm), axis=1)  # hcat
+    t = np.concatenate((t1_norm, t2_norm), axis=1)  # 1: hcat; 0: vcat
 
     return t  # [6041, 7906]
 
@@ -165,7 +159,7 @@ def get_list_tuples():
     t_file = 'hcf2.pkl'
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-    training, test = split_ratings(ratings, 8)  # (i, j, value)
+    training, test = split_ratings_by_time(ratings, 0.8)  # (i, j, value)
     if not os.path.isfile(t_file):
         x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
         t = compute_t(x_train, y_train)
@@ -189,7 +183,7 @@ def get_list_tuples():
 def manual_inference(t_hat):
     path = '../../data/movielens/medium/ratings.dat'
     ratings = load_ratings(path)  # [i, j, rating, timestamp]
-    training, test = split_ratings(ratings, 8)
+    training, test = split_ratings_by_time(ratings, 0.8)
     # x_train, o_train, y_train = generate_xoy(training, (6041, 3953))
     x_test, o_test, y_test = generate_xoy_binary(test, (6041, 3953))
 
@@ -203,7 +197,7 @@ def manual_inference(t_hat):
     t2_hat_norm = (t2_hat - np.min(t2_hat[mask2])) / (np.max(t2_hat[mask2]) - np.min(t2_hat[mask2]))
     t2_hat_norm *= mask2
 
-    r_hat = t1_hat_norm + 0.5 * t2_hat_norm
+    r_hat = t1_hat_norm - 0.5 * t2_hat_norm
     y_scores = r_hat[o_test > 0]
     y_true = x_test[o_test > 0]
     auc_score = roc_auc_score(y_true, y_scores)
