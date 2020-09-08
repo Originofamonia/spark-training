@@ -87,28 +87,35 @@ def diversity_excludes_train(sim_matrix, r_hat, o_train, x_train):
     r_hat = r_hat * (o_train < 1)  # f1: must have
 
     k = 50
-    diversity_list = []
+    all_users_div = []
     for i, row in enumerate(r_hat):
         # if np.max(x_train[i]) < 0.5:  # f2: user must have positive rating in x_train (optional)
         #     continue
 
         topk_indices = row.argsort()[-k:][::-1]
-        comb = np.array(list(combinations(topk_indices, 2)))
-        topk_diversity = div_matrix[comb[:, 0], comb[:, 1]]
-        diversity_list.append(np.sum(topk_diversity) / comb.shape[0])
+        topk_diversity = get_user_div_list(div_matrix, topk_indices)
+        all_users_div.append(np.mean(topk_diversity))
 
-    avg_div = sum(diversity_list) / len(diversity_list)
-    diversity_median = sorted(diversity_list)[int(len(diversity_list) / 2)]
-    diversity_quarter = sorted(diversity_list)[int(len(diversity_list) / 4)]
+    avg_div = sum(all_users_div) / len(all_users_div)
+    diversity_median = sorted(all_users_div)[int(len(all_users_div) / 2)]
+    diversity_quarter = sorted(all_users_div)[int(len(all_users_div) / 4)]
 
-    plt.hist(sorted(diversity_list, reverse=True), bins=50, color=np.random.rand(1, 3))
+    np.save('hcf1_div.npy', all_users_div)
+    plt.hist(sorted(all_users_div, reverse=True), bins=50, color=np.random.rand(1, 3))
     plt.grid()
     plt.xlabel('Diversity')
     plt.show()
     return avg_div
 
 
+def get_user_div_list(div_matrix, topk_indices):
+    comb = np.array(list(combinations(topk_indices, 2)))
+    topk_diversity = div_matrix[comb[:, 0], comb[:, 1]]
+    return topk_diversity
+
+
 def diversity_rerank(sim_matrix, r_hat, o_train, x_train):
+    # rerank by largest diversity among topk R*
     mask = sim_matrix > 0
     sim_matrix = (sim_matrix - np.min(sim_matrix[mask])) / (np.max(sim_matrix[mask]) - np.min(sim_matrix[mask]))
     sim_matrix *= mask
@@ -116,24 +123,47 @@ def diversity_rerank(sim_matrix, r_hat, o_train, x_train):
     r_hat = r_hat * (o_train < 1)  # f1: must have
 
     k = 50
-    diversity_list = []
-    for i, row in enumerate(r_hat):
+    topk2 = 9
+    all_users_div = []
+    for i, row in enumerate(r_hat):  # for each user
         # if np.max(x_train[i]) < 0.5:  # f2: user must have positive rating in x_train (optional)
         #     continue
-        div_list = []
+
+        div_idx_list = []
         topk_indices = row.argsort()[-k:][::-1]
-        comb = np.array(list(combinations(topk_indices, 2)))
+        div_idx_list.append(topk_indices[0])
+        topk_indices = np.delete(topk_indices, 0)  # delete by index
+        for i in range(topk2):
+            candidate_idx = select_largest_div(div_idx_list, div_matrix, topk_indices)
+            div_idx_list.append(topk_indices[candidate_idx])
+            topk_indices = np.delete(topk_indices, candidate_idx)
 
+        user_div_list = get_user_div_list(div_matrix, div_idx_list)
+        all_users_div.append(np.mean(user_div_list))
 
-    avg_div = sum(diversity_list) / len(diversity_list)
-    diversity_median = sorted(diversity_list)[int(len(diversity_list) / 2)]
-    diversity_quarter = sorted(diversity_list)[int(len(diversity_list) / 4)]
+    avg_div = sum(all_users_div) / len(all_users_div)
+    diversity_median = sorted(all_users_div)[int(len(all_users_div) / 2)]
+    diversity_quarter = sorted(all_users_div)[int(len(all_users_div) / 4)]
 
-    plt.hist(sorted(diversity_list, reverse=True), bins=50, color=np.random.rand(1, 3))
+    np.save('base1_rerank.npy', all_users_div)
+    plt.hist(sorted(all_users_div, reverse=True), bins=50, color=np.random.rand(1, 3))
     plt.grid()
     plt.xlabel('Diversity')
     plt.show()
     return avg_div
+
+
+def select_largest_div(div_list, div_matrix, topk_indices):
+    largest_avg_div = float('-inf')
+    candidate_idx = -1
+    for i, idx in enumerate(topk_indices):  # for topk item indices
+        candidate_div_list = div_matrix[div_list, idx]
+        avg_div = np.mean(candidate_div_list)
+        if avg_div > largest_avg_div:
+            candidate_idx = i
+            largest_avg_div = avg_div
+
+    return candidate_idx
 
 
 def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):

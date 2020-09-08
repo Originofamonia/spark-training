@@ -33,7 +33,7 @@ add_path(root_path)
 
 from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings_by_time
 from machine_learning.movieLens.utils import load_ratings, generate_xoy_binary, generate_xoy
-from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity_excludes_train
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity_excludes_train, diversity_rerank
 
 
 def parse_o(line):

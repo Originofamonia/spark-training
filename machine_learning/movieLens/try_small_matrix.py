@@ -5,6 +5,8 @@ import numpy as np
 from pyspark import SparkConf, SparkContext
 from pyspark.mllib.recommendation import ALS
 from pyspark.sql import SparkSession
+import matplotlib.pyplot as plt
+plt.rcParams.update({'font.size': 23})
 
 
 def add_path(path):
@@ -81,5 +83,23 @@ def try_spark_symetric_matrix():
     print(np.linalg.matrix_rank(a_hat))
 
 
+def draw_histo():
+    # plt.style.use('seaborn-deep')
+
+    base1_div_data = 'base1_div.npy'
+    base1_rerank_data = 'base1_rerank.npy'
+    hcf1_div_data = 'hcf1_div.npy'
+    base1_div = np.load(base1_div_data)
+    base1_rerank = np.load(base1_rerank_data)
+    hcf1_div = np.load(hcf1_div_data)
+    bins = np.linspace(0.2, 1, 30)
+
+    plt.hist([base1_div, base1_rerank, hcf1_div], bins=bins, label=['CF-RT', 'CF-DM', 'HI-RT'])
+    plt.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    plt.xlabel('Diversity')
+    plt.ylabel('# Users')
+    plt.show()
+
+
 if __name__ == '__main__':
-    try_spark_symetric_matrix()
+    draw_histo()

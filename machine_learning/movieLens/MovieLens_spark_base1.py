@@ -34,7 +34,7 @@ add_path(root_path)
 
 from machine_learning.movieLens.MovieLens_spark_hcf import spark_matrix_completion
 from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings_by_time
-from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity_excludes_train
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity_excludes_train, diversity_rerank
 from machine_learning.movieLens.utils import load_ratings, generate_xoy, generate_xoy_binary
 
 
@@ -43,7 +43,7 @@ def compute_s(x_train):
     mask = s > 0
     s_norm = (s - np.min(s[mask])) / (np.max(s[mask]) - np.min(s[mask]))  # only normalize t1 > 0
     s_norm = s_norm * mask
-    s_norm[s_norm < 1e-2] = 0
+    s_norm[s_norm < 1e-1] = 0
 
     return s_norm
 
@@ -56,7 +56,7 @@ def parse_s(t):
     t_list_tuple = []
     for i in tqdm.tqdm(range(t.shape[0])):
         for j in range(t.shape[1]):
-            if t[i][j] > 1e-6:
+            if t[i][j] > 1e-2:
                 t_list_tuple.append((i, j, t[i][j]))
 
     # sparse_t = csr_matrix(t, dtype=float).tocoo()  # used for spark
@@ -152,9 +152,9 @@ def main():
     test_rdd = sc.parallelize(test_list_tuple) \
         .map(lambda x: (x[0], x[1], float(x[2])))\
         .repartition(num_partitions)
-    ranks = [16, 25]
-    lambdas = [0.1, 0.01]
-    num_iters = [10, 20]
+    ranks = [16]
+    lambdas = [0.1]
+    num_iters = [10]
     best_model = None
     best_validation_auc = float("-inf")
     best_rank = 0

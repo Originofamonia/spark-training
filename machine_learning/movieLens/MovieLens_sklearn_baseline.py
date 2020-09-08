@@ -30,7 +30,7 @@ add_path(root_path)
 from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
     sigmoid, load_ratings
 from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, split_ratings_by_time
-from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity, diversity_excludes_train
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity, diversity_excludes_train, diversity_rerank
 
 
 def compute_s(x_train):
@@ -101,7 +101,7 @@ def main():
     for rank, num_iter in itertools.product(ranks, num_iters):
         s_hat = mf_sklearn(s, n_components=rank, n_iter=num_iter)  # [0, 23447]
         valid_auc, all_scores_norm = baseline_inference(s_hat, training, test, (6041, 3953), pr_curve_filename)
-        diversity_score = diversity_excludes_train(s_hat, all_scores_norm, o_train, x_train)
+        diversity_score = diversity_rerank(s_hat, all_scores_norm, o_train, x_train)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:

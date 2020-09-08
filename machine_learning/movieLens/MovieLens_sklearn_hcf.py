@@ -30,7 +30,7 @@ add_path(root_path)
 from machine_learning.movieLens.MovieLens_sklearn_hcf_nn import split_ratings_by_time
 from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, generate_xoy_binary,\
     compute_t, load_ratings
-from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import diversity, mf_sklearn, diversity_excludes_train
+from machine_learning.movieLens.MovieLens_sklearn_hcf2vcat import mf_sklearn, diversity_excludes_train, diversity_rerank
 
 
 def hcf_inference(t_hat, training, test, rating_shape, pr_curve_filename):
