@@ -29,9 +29,9 @@ def recommend(movie_title, min_count, df_title, df_p, df_movie_summary):
 def main():
     # Skip date
     df1 = pd.read_csv('../nflx_data/combined_data_1.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
-    df2 = pd.read_csv('../nflx_data/combined_data_2.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
-    df3 = pd.read_csv('../nflx_data/combined_data_3.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
-    df4 = pd.read_csv('../nflx_data/combined_data_4.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
+    # df2 = pd.read_csv('../nflx_data/combined_data_2.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
+    # df3 = pd.read_csv('../nflx_data/combined_data_3.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
+    # df4 = pd.read_csv('../nflx_data/combined_data_4.txt', header=None, names=['Cust_Id', 'Rating'], usecols=[0, 1])
 
     df1['Rating'] = df1['Rating'].astype(float)
 

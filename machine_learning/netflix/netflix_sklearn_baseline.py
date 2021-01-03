@@ -18,7 +18,7 @@ abs_current_path = os.path.realpath('./')
 root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
 add_path(root_path)
 
-from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, parse_xoy, parse_xoy_binary, compute_t
+from machine_learning.movieLens.MovieLens_spark_hcf import generate_xoy, compute_t
 from machine_learning.movieLens.MovieLens_sklearn_hcf import mf_sklearn, hcf_inference
 from machine_learning.movieLens.MovieLens_sklearn_baseline import compute_s, baseline_inference
 from machine_learning.netflix.netflix_sklearn_hcf import split_nflx_ratings, gen_nflx_xoy
@@ -31,7 +31,7 @@ def main():
     # np.save(rating_filename, ratings)
 
     ratings = np.load(rating_filename)
-    training, validation, test = split_nflx_ratings(ratings, 0.6, 0.8)
+    training, validation, test = split_nflx_ratings(ratings, 0.8)
     x_train, o_train, y_train = gen_nflx_xoy(training, ratings.shape)
     # x_train, o_train, y_train = gen_nflx_xoy_binary(training, ratings.shape)
 

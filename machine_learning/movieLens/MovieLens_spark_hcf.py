@@ -198,7 +198,7 @@ def main():
     test_rdd = sc.parallelize(test_list_tuple) \
         .map(lambda x: (x[0], x[1], float(x[2])))\
         .repartition(num_partitions)
-    ranks = [8, 12]
+    ranks = [16, 12]
     lambdas = [0.1, 0.01]
     num_iters = [10, 20]
     best_model = None
@@ -209,7 +209,7 @@ def main():
     start_time = time()
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
 
-        model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
+        model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=999)
         t_hat = spark_matrix_completion(model, (7906, 3953), rank)
         validation_auc, r_hat = manual_inference(t_hat)
         div_score = diversity_excludes_train(t_hat, r_hat, o_train, x_train)

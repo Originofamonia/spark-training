@@ -163,10 +163,10 @@ def main():
     start_time = time()
     for rank, lmbda, numIter in itertools.product(ranks, lambdas, num_iters):
 
-        model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=444)
+        model = ALS.train(t_rdd, rank, numIter, lmbda, nonnegative=True, seed=999)
         s_hat = spark_matrix_completion(model, (3953, 3953), rank)  # s_hat: [3953, 3953]
         validation_auc, r_hat = manual_inference(s_hat)
-        div_score = diversity_excludes_train(s_hat, r_hat, o_train, x_train)
+        div_score = diversity_rerank(s_hat, r_hat, o_train, x_train)
         print("The current model was trained with rank = {} and lambda = {}, and numIter = {}, and its AUC on the "
               "validation set is {}.".format(rank, lmbda, numIter, validation_auc))
         if validation_auc > best_validation_auc:

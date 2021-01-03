@@ -1,13 +1,37 @@
 # HCF dev
 Create a python virtual environment (pyspark). Required packages: pyspark, scipy, numpy, itertools, sklearn
 ## MovieLens
-movieLens: in `machine_learning/movieLens/`
+Code in `machine_learning/movieLens/`
 
-sklearn hcf is in `MovieLens_sklearn_hcf.py`
+Data in `data/movielens/medium/ratings.dat`
 
-sklearn baseline (x.T * x) is in `MovieLens_sklearn_baseline.py` 
+Read data steps: 1st: `load_ratings` in `utils.py`; 2nd: `split_ratings_by_time` in `MovieLens_sklean_hcf_nn.py`; 3rd: `generate_xoy` in `utils.py`.  
 
-sklearn baseline2 (MF(x_train)) is in `MovieLens_sklearn_baseline2.py`
+`MovieLens_sklearn_hcf.py`： sklearn version HCF. `compute_t` is in `MovieLens_spark_hcf.py`; `mf_sklearn` is in `MovieLens_sklearn_hcf2vcat.py`; `hcf_inference` in this file.
+
+`MovieLens_sklearn_hcf2.py`：T = concat(X, Y), evaluate on left half of T* only.
+
+`MovieLens_sklearn_hcf2vcat.py`: T = concat(X, Y\*Y.T\*X); R* = X* + 2 * (Y\*Y.T*X)
+
+`MovieLens_sklearn_hcf_nn.py`: DL version of HCF. 
+
+`MovieLens_sklearn_baseline.py`: sklearn baseline MF(x.T * x)  
+
+`MovieLens_sklearn_baseline2.py`: sklearn baseline2 MF(x)
+
+`MovieLens_spark_base1.py`: spark ALS.train(x.T * x); `compute_s`: x.T * x, filter out `s_norm[s_norm < 1e-1] = 0`.
+
+`MovieLens_spark_base2.py`: spark ALS.train(x);
+
+`MovieLens_spark_hcf.py`: spark ALS.train(T); T = cat(x.T * x, y.T * x)
+
+`MovieLens_spark_hcf2.py`: spark ALS.train(T); T = concat(X, Y), evaluate on left half of T* only
+
+`MovieLens_spark_hcf2hcat.py`: spark ALS.train(T); T = hcat(X, Y * Y.T * X)
+
+`MovieLensALS.py`: original ALS example.
+
+`MovieLensALS_baseline.py` and `MovieLensALS_hcf.py`: unsuccessful attempts.
 ### Change hyperparameters
 Change [0, 1] rating threshold in `MovieLens_spark_hcf.py`, function `parse_xoy_label(mat, n_users, n_items)`, line 55: `mat >= 3`
 

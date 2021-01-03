@@ -6,7 +6,10 @@ from pyspark import SparkConf, SparkContext
 from pyspark.mllib.recommendation import ALS
 from pyspark.sql import SparkSession
 import matplotlib.pyplot as plt
+
 plt.rcParams.update({'font.size': 23})
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Tahoma']
 
 
 def add_path(path):
@@ -69,12 +72,12 @@ def try_spark_symetric_matrix():
     rank = 2
 
     list_tuple = [
-                  (0, 2, 5),
+        (0, 2, 5),
 
-                  (1, 1, 1),
+        (1, 1, 1),
 
-                  (2, 0, 5),
-                  ]
+        (2, 0, 5),
+    ]
 
     a_rdd = sc.parallelize(list_tuple).repartition(2)
     model = ALS.train(a_rdd, rank, 20, nonnegative=True)
@@ -95,9 +98,9 @@ def draw_histo():
     bins = np.linspace(0.2, 1, 30)
 
     plt.hist([base1_div, base1_rerank, hcf1_div], bins=bins, label=['CF-RT', 'CF-DM', 'HI-RT'])
-    plt.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    plt.legend(loc='upper right', fancybox=True, framealpha=0.1)
     plt.xlabel('Diversity')
-    plt.ylabel('# Users')
+    plt.ylabel('#User')
     plt.show()
 
 

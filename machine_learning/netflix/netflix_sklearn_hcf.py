@@ -107,7 +107,7 @@ def sparse_to_coo(t):
     return coo
 
 
-def split_nflx_ratings(ratings, b1, b2):
+def split_nflx_ratings(ratings, b1):
     """
     :param ratings: sparse matrix
     :return: training, validation, test: [i, j, rating]
@@ -115,10 +115,9 @@ def split_nflx_ratings(ratings, b1, b2):
     coo = sparse_to_coo(ratings)
     full_len = len(coo)
     training = coo[:int(full_len * b1)]
-    validation = coo[int(full_len * b1):int(full_len * b2)]
-    test = coo[int(full_len * b2):]
+    test = coo[int(full_len * b1):]
 
-    return training, validation, test
+    return training, test
 
 
 def gen_nflx_xoy(coo_mat, rating_shape):
@@ -148,7 +147,7 @@ def main():
     # np.save(rating_filename, ratings)
 
     ratings = np.load(rating_filename)
-    training, validation, test = split_nflx_ratings(ratings, 0.6, 0.8)
+    training, test = split_nflx_ratings(ratings, 0.8)
     x_train, o_train, y_train = gen_nflx_xoy(training, ratings.shape)
     # x_train, o_train, y_train = gen_nflx_xoy_binary(training, ratings.shape)
 
@@ -163,7 +162,7 @@ def main():
 
     for rank, num_iter in itertools.product(ranks, num_iters):
         t_hat = mf_sklearn(t, n_components=rank, n_iter=num_iter)  # [0, 23447]
-        valid_auc = hcf_inference(t_hat, training, validation, ratings.shape, pr_curve_filename)
+        valid_auc = hcf_inference(t_hat, training, test, ratings.shape, pr_curve_filename)
         print("The current model was trained with rank = {}, and num_iter = {}, and its AUC on the "
               "validation set is {}.".format(rank, num_iter, valid_auc))
         if valid_auc > best_validation_auc:

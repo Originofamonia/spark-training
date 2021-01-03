@@ -18,7 +18,6 @@ import numpy as np
 # from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.decomposition import NMF
 from sklearn.metrics import roc_auc_score, precision_recall_curve
-from machine_learning.movieLens.hcf_nn import Hcf
 # from os.path import join, isfile, dirname
 
 
@@ -32,7 +31,7 @@ abs_current_path = os.path.realpath('./')
 root_path = os.path.join('/', *abs_current_path.split(os.path.sep)[:-2])
 add_path(root_path)
 
-
+from machine_learning.movieLens.hcf_nn import Hcf
 from machine_learning.movieLens.utils import generate_xoy, generate_xoy_binary, load_ratings
 
 

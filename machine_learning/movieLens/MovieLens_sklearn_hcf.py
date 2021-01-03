@@ -3,7 +3,6 @@
 """
 use numpy to process matrices
     1. use sklearn's MF (done)
-    2. stuck at line 195: model = ALS.train(t_rdd, rank, numIter, lmbda)
 """
 import sys
 import os
